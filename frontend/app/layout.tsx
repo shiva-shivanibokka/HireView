@@ -1,0 +1,15 @@
+import type { Metadata } from "next"
+import "./globals.css"
+
+export const metadata: Metadata = {
+  title: "AutoApply Job Agent",
+  description: "Find jobs, generate tailored resumes, and autofill applications.",
+}
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  )
+}
