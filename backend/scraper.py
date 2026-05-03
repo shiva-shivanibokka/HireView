@@ -810,12 +810,17 @@ def search_adzuna(
 
     country = "us"
     loc = location.lower()
-    if any(x in loc for x in ["uk", "london", "england"]):
-        country = "gb"
-    elif any(x in loc for x in ["canada", "toronto"]):
+    if any(
+        x in loc for x in ["uk", "london", "england", "europe", "germany", "france"]
+    ):
+        country = "gb"  # Adzuna UK as closest proxy for Europe
+    elif any(x in loc for x in ["india", "bangalore", "mumbai", "delhi"]):
+        country = "in"
+    elif any(x in loc for x in ["canada", "toronto", "vancouver"]):
         country = "ca"
-    elif any(x in loc for x in ["australia", "sydney"]):
+    elif any(x in loc for x in ["australia", "sydney", "melbourne"]):
         country = "au"
+    # "remote" and "United States" both stay as "us"
 
     base = (
         f"https://api.adzuna.com/v1/api/jobs/{country}/search/1"

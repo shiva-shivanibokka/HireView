@@ -3,7 +3,7 @@
 import { useState, useRef } from "react"
 import type { Job, UserProfile } from "@/lib/types"
 import { searchJobs } from "@/lib/api"
-import { SearchIcon, UploadIcon, ChevronDownIcon, ChevronUpIcon, LoaderIcon } from "lucide-react"
+import { SearchIcon, UploadIcon, ChevronDownIcon, ChevronUpIcon, LoaderIcon, GlobeIcon } from "lucide-react"
 
 interface Props {
   profile:         UserProfile
@@ -11,19 +11,25 @@ interface Props {
   onJobsFound:     (jobs: Job[]) => void
 }
 
+const LOCATIONS = [
+  { label: "🇺🇸  USA",       value: "United States" },
+  { label: "🇪🇺  Europe",    value: "Europe"        },
+  { label: "🇮🇳  India",     value: "India"         },
+  { label: "🌐  Remote",    value: "remote"        },
+]
+
 export default function SearchPanel({ profile, onProfileChange, onJobsFound }: Props) {
-  const [keywords, setKeywords]       = useState("")
-  const [location, setLocation]       = useState("")
-  const [resumeFile, setResumeFile]   = useState<File | null>(null)
-  const [apiKey, setApiKey]           = useState("")
-  const [loading, setLoading]         = useState(false)
-  const [error, setError]             = useState("")
+  const [keywords, setKeywords]         = useState("")
+  const [location, setLocation]         = useState("United States")
+  const [resumeFile, setResumeFile]     = useState<File | null>(null)
+  const [loading, setLoading]           = useState(false)
+  const [error, setError]               = useState("")
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [adzunaId, setAdzunaId]       = useState("")
-  const [adzunaKey, setAdzunaKey]     = useState("")
-  const [useGH, setUseGH]             = useState(true)
-  const [useLV, setUseLV]             = useState(true)
-  const [useAB, setUseAB]             = useState(true)
+  const [adzunaId, setAdzunaId]         = useState("")
+  const [adzunaKey, setAdzunaKey]       = useState("")
+  const [useGH, setUseGH]               = useState(true)
+  const [useLV, setUseLV]               = useState(true)
+  const [useAB, setUseAB]               = useState(true)
   const fileRef = useRef<HTMLInputElement>(null)
 
   async function handleSearch() {
@@ -49,9 +55,13 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
 
   return (
     <div style={{ padding: 16, borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+
       {/* Keywords */}
       <div style={{ position: "relative", marginBottom: 8 }}>
-        <SearchIcon size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--muted)" }} />
+        <SearchIcon size={14} style={{
+          position: "absolute", left: 10, top: "50%",
+          transform: "translateY(-50%)", color: "var(--muted)",
+        }} />
         <input
           value={keywords} onChange={e => setKeywords(e.target.value)}
           onKeyDown={e => e.key === "Enter" && handleSearch()}
@@ -60,12 +70,27 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
         />
       </div>
 
-      {/* Location */}
-      <input
-        value={location} onChange={e => setLocation(e.target.value)}
-        placeholder="Location (e.g. San Francisco, Remote)"
-        style={{ ...inputStyle(), marginBottom: 8 }}
-      />
+      {/* Location — preset buttons */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 5, display: "flex", alignItems: "center", gap: 4 }}>
+          <GlobeIcon size={11} /> Location
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {LOCATIONS.map(loc => (
+            <button key={loc.value} onClick={() => setLocation(loc.value)}
+              style={{
+                padding: "5px 12px", borderRadius: 20, border: "1px solid",
+                borderColor: location === loc.value ? "var(--accent)" : "var(--border)",
+                background: location === loc.value ? "var(--accent)" : "var(--surface2)",
+                color: location === loc.value ? "#fff" : "var(--muted)",
+                fontSize: 12, fontWeight: 500, cursor: "pointer",
+                transition: "all 0.15s",
+              }}>
+              {loc.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {/* Resume upload */}
       <div
@@ -74,8 +99,7 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
           display: "flex", alignItems: "center", gap: 8,
           padding: "8px 12px", borderRadius: 6, cursor: "pointer",
           border: "1px dashed var(--border)", marginBottom: 8,
-          color: resumeFile ? "var(--text)" : "var(--muted)",
-          fontSize: 13,
+          color: resumeFile ? "var(--text)" : "var(--muted)", fontSize: 13,
           transition: "border-color 0.15s",
         }}
         onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--accent)")}
@@ -87,23 +111,14 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
           onChange={e => setResumeFile(e.target.files?.[0] ?? null)} />
       </div>
 
-      {/* API key */}
-      <input
-        type="password" value={apiKey} onChange={e => setApiKey(e.target.value)}
-        placeholder="Anthropic API key (for resume generation)"
-        style={{ ...inputStyle(), marginBottom: 8 }}
-      />
-
-      {/* Profile fields */}
+      {/* Profile fields — Email, Phone, LinkedIn, GitHub only (no Name, no Address) */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
-        {[
-          ["Name",       "name",         "Your full name"],
-          ["Email",      "email",        "email@example.com"],
-          ["Phone",      "phone",        "+1 (415) 555-0000"],
-          ["LinkedIn",   "linkedin_url", "linkedin.com/in/…"],
-          ["GitHub",     "github_url",   "github.com/…"],
-          ["Address",    "address",      "City, State"],
-        ].map(([label, key, ph]) => (
+        {([
+          ["Email",    "email",        "email@example.com"   ],
+          ["Phone",    "phone",        "+1 (415) 555-0000"   ],
+          ["LinkedIn", "linkedin_url", "linkedin.com/in/…"   ],
+          ["GitHub",   "github_url",   "github.com/username" ],
+        ] as const).map(([label, key, ph]) => (
           <div key={key}>
             <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 2 }}>{label}</div>
             <input
@@ -127,19 +142,21 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
         <div style={{ marginBottom: 8 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
             <input value={adzunaId}  onChange={e => setAdzunaId(e.target.value)}
-              placeholder="Adzuna App ID (optional)" style={inputStyle({ fontSize: "12px" })} />
+              placeholder="Adzuna App ID" style={inputStyle({ fontSize: "12px" })} />
             <input value={adzunaKey} onChange={e => setAdzunaKey(e.target.value)}
-              placeholder="Adzuna App Key (optional)" style={inputStyle({ fontSize: "12px" })} />
+              placeholder="Adzuna App Key" style={inputStyle({ fontSize: "12px" })} />
           </div>
           <div style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--muted)" }}>
-            {([["Greenhouse", useGH, setUseGH], ["Lever", useLV, setUseLV], ["Ashby", useAB, setUseAB]] as const).map(
-              ([label, val, set]) => (
-                <label key={label} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
-                  <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} />
-                  {label}
-                </label>
-              )
-            )}
+            {([
+              ["Greenhouse", useGH, setUseGH],
+              ["Lever",      useLV, setUseLV],
+              ["Ashby",      useAB, setUseAB],
+            ] as const).map(([label, val, set]) => (
+              <label key={label} style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                <input type="checkbox" checked={val} onChange={e => set(e.target.checked)} />
+                {label}
+              </label>
+            ))}
           </div>
         </div>
       )}
@@ -150,11 +167,14 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
         style={{
           width: "100%", padding: "9px 0", borderRadius: 6, border: "none",
           background: loading ? "var(--surface2)" : "var(--accent)",
-          color: "#fff", fontWeight: 600, fontSize: 13, cursor: loading ? "not-allowed" : "pointer",
+          color: "#fff", fontWeight: 600, fontSize: 13,
+          cursor: loading ? "not-allowed" : "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
           transition: "background 0.15s",
         }}>
-        {loading ? <><LoaderIcon size={14} className="spin" /> Searching…</> : <><SearchIcon size={14} /> Search Jobs</>}
+        {loading
+          ? <><LoaderIcon size={14} className="spin" /> Searching…</>
+          : <><SearchIcon size={14} /> Search Jobs</>}
       </button>
     </div>
   )
