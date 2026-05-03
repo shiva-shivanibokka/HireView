@@ -132,6 +132,26 @@ def _find_name(text: str) -> str:
     return ""
 
 
+def extract_contact_info(raw_text: str) -> dict:
+    """
+    Fast regex-based extraction of contact info from raw resume text.
+    No API key needed. Used to auto-populate profile fields in the UI.
+    """
+    linkedin = _find_linkedin(raw_text)
+    github = _find_github(raw_text)
+    return {
+        "name": _find_name(raw_text),
+        "email": _find_email(raw_text),
+        "phone": _find_phone(raw_text),
+        "linkedin_url": f"https://{linkedin}"
+        if linkedin and not linkedin.startswith("http")
+        else linkedin,
+        "github_url": f"https://{github}"
+        if github and not github.startswith("http")
+        else github,
+    }
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # CLAUDE-POWERED STRUCTURED EXTRACTION
 # ──────────────────────────────────────────────────────────────────────────────

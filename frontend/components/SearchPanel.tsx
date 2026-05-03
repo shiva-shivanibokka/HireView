@@ -2,8 +2,11 @@
 
 import { useState, useRef } from "react"
 import type { Job, UserProfile } from "@/lib/types"
-import { searchJobs } from "@/lib/api"
-import { SearchIcon, UploadIcon, ChevronDownIcon, ChevronUpIcon, LoaderIcon, GlobeIcon } from "lucide-react"
+import { searchJobs, parseResumeInfo } from "@/lib/api"
+import {
+  SearchIcon, UploadIcon, ChevronDownIcon, ChevronUpIcon,
+  LoaderIcon, GlobeIcon, CheckCircleIcon,
+} from "lucide-react"
 
 interface Props {
   profile:         UserProfile
@@ -12,17 +15,19 @@ interface Props {
 }
 
 const LOCATIONS = [
-  { label: "🇺🇸  USA",       value: "United States" },
-  { label: "🇪🇺  Europe",    value: "Europe"        },
-  { label: "🇮🇳  India",     value: "India"         },
-  { label: "🌐  Remote",    value: "remote"        },
+  { label: "🇺🇸  USA",    value: "United States" },
+  { label: "🇪🇺  Europe", value: "Europe"        },
+  { label: "🇮🇳  India",  value: "India"         },
+  { label: "🌐  Remote", value: "remote"        },
 ]
 
 export default function SearchPanel({ profile, onProfileChange, onJobsFound }: Props) {
   const [keywords, setKeywords]         = useState("")
   const [location, setLocation]         = useState("United States")
   const [resumeFile, setResumeFile]     = useState<File | null>(null)
+  const [resumeParsed, setResumeParsed] = useState(false)
   const [loading, setLoading]           = useState(false)
+  const [parsing, setParsing]           = useState(false)
   const [error, setError]               = useState("")
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [adzunaId, setAdzunaId]         = useState("")
@@ -31,6 +36,30 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
   const [useLV, setUseLV]               = useState(true)
   const [useAB, setUseAB]               = useState(true)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  async function handleResumeUpload(file: File) {
+    setResumeFile(file)
+    setResumeParsed(false)
+    setParsing(true)
+    try {
+      const info = await parseResumeInfo(file)
+      // Only overwrite fields that are currently empty
+      onProfileChange({
+        name:            profile.name            || info.name            || "",
+        email:           profile.email           || info.email           || "",
+        phone:           profile.phone           || info.phone           || "",
+        linkedin_url:    profile.linkedin_url    || info.linkedin_url    || "",
+        github_url:      profile.github_url      || info.github_url      || "",
+        address:         profile.address         || "",
+        current_company: profile.current_company || "",
+      })
+      setResumeParsed(true)
+    } catch {
+      // Silent — just don't auto-populate
+    } finally {
+      setParsing(false)
+    }
+  }
 
   async function handleSearch() {
     if (!keywords.trim()) { setError("Enter at least one keyword"); return }
@@ -45,7 +74,7 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
         useGreenhouse: useGH, useLever: useLV, useAshby: useAB,
       })
       onJobsFound(res.jobs)
-      if (res.jobs.length === 0) setError(res.message ?? "No jobs found")
+      if (res.jobs.length === 0) setError(res.message ?? "No jobs found. Try broader keywords.")
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Search failed")
     } finally {
@@ -70,29 +99,30 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
         />
       </div>
 
-      {/* Location — preset buttons */}
+      {/* Location — preset pill buttons */}
       <div style={{ marginBottom: 8 }}>
-        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 5, display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{
+          fontSize: 11, color: "var(--muted)", marginBottom: 5,
+          display: "flex", alignItems: "center", gap: 4,
+        }}>
           <GlobeIcon size={11} /> Location
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {LOCATIONS.map(loc => (
-            <button key={loc.value} onClick={() => setLocation(loc.value)}
-              style={{
-                padding: "5px 12px", borderRadius: 20, border: "1px solid",
-                borderColor: location === loc.value ? "var(--accent)" : "var(--border)",
-                background: location === loc.value ? "var(--accent)" : "var(--surface2)",
-                color: location === loc.value ? "#fff" : "var(--muted)",
-                fontSize: 12, fontWeight: 500, cursor: "pointer",
-                transition: "all 0.15s",
-              }}>
+            <button key={loc.value} onClick={() => setLocation(loc.value)} style={{
+              padding: "5px 12px", borderRadius: 20, border: "1px solid",
+              borderColor: location === loc.value ? "var(--accent)" : "var(--border)",
+              background:  location === loc.value ? "var(--accent)" : "var(--surface2)",
+              color:       location === loc.value ? "#fff" : "var(--muted)",
+              fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
+            }}>
               {loc.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Resume upload */}
+      {/* Resume upload — auto-parses contact info on upload */}
       <div
         onClick={() => fileRef.current?.click()}
         style={{
@@ -105,17 +135,28 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
         onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--accent)")}
         onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
       >
-        <UploadIcon size={14} color="var(--accent)" />
-        {resumeFile ? resumeFile.name : "Upload resume (PDF or DOCX)"}
+        {parsing
+          ? <LoaderIcon size={14} color="var(--accent)" className="spin" />
+          : resumeParsed
+            ? <CheckCircleIcon size={14} color="var(--green)" />
+            : <UploadIcon size={14} color="var(--accent)" />
+        }
+        <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {parsing
+            ? "Parsing resume…"
+            : resumeFile
+              ? resumeParsed
+                ? `${resumeFile.name} — contact info extracted`
+                : resumeFile.name
+              : "Upload resume (PDF or DOCX) — contact info auto-filled"}
+        </span>
         <input ref={fileRef} type="file" accept=".pdf,.docx" hidden
-          onChange={e => setResumeFile(e.target.files?.[0] ?? null)} />
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleResumeUpload(f) }} />
       </div>
 
-      {/* Profile fields — Email, Phone, LinkedIn, GitHub only (no Name, no Address) */}
+      {/* LinkedIn + GitHub — shown so user can verify/override what was parsed */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
         {([
-          ["Email",    "email",        "email@example.com"   ],
-          ["Phone",    "phone",        "+1 (415) 555-0000"   ],
           ["LinkedIn", "linkedin_url", "linkedin.com/in/…"   ],
           ["GitHub",   "github_url",   "github.com/username" ],
         ] as const).map(([label, key, ph]) => (
@@ -163,15 +204,14 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
 
       {error && <p style={{ color: "var(--red)", fontSize: 12, marginBottom: 8 }}>{error}</p>}
 
-      <button onClick={handleSearch} disabled={loading}
-        style={{
-          width: "100%", padding: "9px 0", borderRadius: 6, border: "none",
-          background: loading ? "var(--surface2)" : "var(--accent)",
-          color: "#fff", fontWeight: 600, fontSize: 13,
-          cursor: loading ? "not-allowed" : "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          transition: "background 0.15s",
-        }}>
+      <button onClick={handleSearch} disabled={loading} style={{
+        width: "100%", padding: "9px 0", borderRadius: 6, border: "none",
+        background: loading ? "var(--surface2)" : "var(--accent)",
+        color: "#fff", fontWeight: 600, fontSize: 13,
+        cursor: loading ? "not-allowed" : "pointer",
+        display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        transition: "background 0.15s",
+      }}>
         {loading
           ? <><LoaderIcon size={14} className="spin" /> Searching…</>
           : <><SearchIcon size={14} /> Search Jobs</>}

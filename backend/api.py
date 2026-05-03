@@ -169,6 +169,46 @@ async def search(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# ENDPOINT 1b — Parse resume contact info (no API key needed)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@app.post("/api/parse-resume-info")
+async def parse_resume_info(resume_file: UploadFile = File(...)):
+    """
+    Extract name, email, phone, linkedin_url, github_url from a resume.
+    Uses regex only — no LLM call, instant.
+    """
+    resume_path = await _save_upload(resume_file)
+    try:
+        from resumeforge.resume_parser import extract_raw_text, extract_contact_info
+
+        raw_text = extract_raw_text(resume_path)
+        info = extract_contact_info(raw_text)
+        return {
+            "name": info.get("name", ""),
+            "email": info.get("email", ""),
+            "phone": info.get("phone", ""),
+            "linkedin_url": info.get("linkedin_url", ""),
+            "github_url": info.get("github_url", ""),
+        }
+    except Exception as e:
+        return {
+            "name": "",
+            "email": "",
+            "phone": "",
+            "linkedin_url": "",
+            "github_url": "",
+            "error": str(e),
+        }
+    finally:
+        try:
+            os.remove(resume_path)
+        except Exception:
+            pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # ENDPOINT 2 — List saved jobs
 # ─────────────────────────────────────────────────────────────────────────────
 

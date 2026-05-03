@@ -77,6 +77,15 @@ export async function searchJobs(params: {
   return post("/api/search", fd)
 }
 
+export async function parseResumeInfo(resumeFile: File): Promise<{
+  name: string; email: string; phone: string
+  linkedin_url: string; github_url: string
+}> {
+  const fd = new FormData()
+  fd.append("resume_file", resumeFile)
+  return post("/api/parse-resume-info", fd)
+}
+
 export async function listJobs(status?: string): Promise<{ jobs: Job[] }> {
   const url = status ? `/api/jobs?status=${status}` : "/api/jobs"
   const res = await fetch(url)
