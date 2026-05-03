@@ -229,21 +229,45 @@ async def autofill_application(
                 else:
                     fields_skipped.append(field_name)
 
-            # Leave browser open — user reviews and submits manually
-            # We keep the browser alive for 10 minutes then auto-close
-            # The user can also close it themselves
             print(
                 f"\n[AutoFill] Done! {len(fields_filled)} fields filled.\n"
                 f"Fields filled:   {fields_filled}\n"
                 f"Fields skipped:  {fields_skipped}\n"
-                f"Review the form in the browser and click Apply when ready.\n"
-                f"The browser will stay open for 10 minutes.\n"
+                f"Review the form in the browser window and click Apply when ready.\n"
+                f"The browser will stay open until you close it.\n"
             )
 
-            # Keep event loop alive while browser is open
-            await asyncio.sleep(600)  # 10 minutes
+            # Return result immediately — browser stays open in background
+            # We detach the context so the browser keeps running after we return
+            result = {
+                "success": True,
+                "platform": platform,
+                "fields_filled": fields_filled,
+                "fields_skipped": fields_skipped,
+                "error": None,
+            }
+
+            # Keep browser alive in a background task (non-blocking)
+            # Browser will close when the user closes the window or after 10 min
+            async def _keep_alive():
+                try:
+                    await asyncio.sleep(600)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        await browser.close()
+                    except Exception:
+                        pass
+
+            asyncio.ensure_future(_keep_alive())
+            return result
 
         except Exception as e:
+            try:
+                await browser.close()
+            except Exception:
+                pass
             return {
                 "success": False,
                 "platform": platform,
@@ -251,18 +275,14 @@ async def autofill_application(
                 "fields_skipped": fields_skipped,
                 "error": str(e),
             }
-        finally:
-            try:
-                await browser.close()
-            except Exception:
-                pass
 
+    # Fallback (should not reach here)
     return {
-        "success": True,
+        "success": False,
         "platform": platform,
         "fields_filled": fields_filled,
         "fields_skipped": fields_skipped,
-        "error": None,
+        "error": "Unknown error",
     }
 
 

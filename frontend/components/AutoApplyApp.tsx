@@ -15,6 +15,7 @@ export default function AutoApplyApp() {
   const [jobs, setJobs]                 = useState<Job[]>([])
   const [selectedJob, setSelectedJob]   = useState<Job | null>(null)
   const [genStates, setGenStates]       = useState<Record<string, JobGenState>>({})
+  const [resumeFile, setResumeFile]     = useState<File | null>(null)   // shared across panels
   const [profile, setProfile]           = useState<UserProfile>({
     name: "", email: "", phone: "", linkedin_url: "",
     github_url: "", address: "", current_company: "",
@@ -36,6 +37,12 @@ export default function AutoApplyApp() {
     }))
   }, [])
 
+  // Update job status in local state after generation / dismiss
+  const handleJobStatusChange = useCallback((jobId: string, status: Job["status"]) => {
+    setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status } : j))
+    setSelectedJob(prev => prev?.id === jobId ? { ...prev, status } : prev)
+  }, [])
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh", overflow: "hidden" }}>
       {/* ── Top bar ─────────────────────────────────────────────────────────── */}
@@ -53,18 +60,17 @@ export default function AutoApplyApp() {
 
         <div style={{ display: "flex", gap: 4, marginLeft: 24 }}>
           {([
-            ["search",       "Job Search",    SearchIcon],
-            ["applications", "Applications",  ClipboardListIcon],
+            ["search",       "Job Search",   SearchIcon],
+            ["applications", "Applications", ClipboardListIcon],
           ] as const).map(([id, label, Icon]) => (
-            <button key={id} onClick={() => setTab(id)}
-              style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 14px", borderRadius: 6, border: "none",
-                cursor: "pointer", fontSize: 13, fontWeight: 500,
-                background: tab === id ? "var(--accent)" : "transparent",
-                color: tab === id ? "#fff" : "var(--muted)",
-                transition: "all 0.15s",
-              }}>
+            <button key={id} onClick={() => setTab(id)} style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", borderRadius: 6, border: "none",
+              cursor: "pointer", fontSize: 13, fontWeight: 500,
+              background: tab === id ? "var(--accent)" : "transparent",
+              color: tab === id ? "#fff" : "var(--muted)",
+              transition: "all 0.15s",
+            }}>
               <Icon size={14} />
               {label}
             </button>
@@ -79,7 +85,7 @@ export default function AutoApplyApp() {
       {/* ── Main content ────────────────────────────────────────────────────── */}
       {tab === "search" ? (
         <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-          {/* Left panel — search + job list */}
+          {/* Left — search + job list */}
           <div style={{
             width: 380, flexShrink: 0,
             borderRight: "1px solid var(--border)",
@@ -90,6 +96,8 @@ export default function AutoApplyApp() {
               profile={profile}
               onProfileChange={setProfile}
               onJobsFound={handleJobsFound}
+              resumeFile={resumeFile}
+              onResumeFile={setResumeFile}
             />
             <div style={{ flex: 1, overflowY: "auto" }}>
               <JobList
@@ -97,18 +105,21 @@ export default function AutoApplyApp() {
                 selectedId={selectedJob?.id ?? null}
                 genStates={genStates}
                 onSelect={handleSelectJob}
+                onDismiss={(jobId) => handleJobStatusChange(jobId, "dismissed")}
               />
             </div>
           </div>
 
-          {/* Right panel — job detail + application */}
+          {/* Right — job detail */}
           <div style={{ flex: 1, overflowY: "auto" }}>
             {selectedJob ? (
               <JobDetail
                 job={selectedJob}
                 profile={profile}
+                resumeFile={resumeFile}
                 genState={genStates[selectedJob.id] ?? { loading: false, progress: [], result: null, error: null }}
                 onGenState={(state) => handleGenState(selectedJob.id, state)}
+                onStatusChange={(status) => handleJobStatusChange(selectedJob.id, status)}
               />
             ) : (
               <Empty />

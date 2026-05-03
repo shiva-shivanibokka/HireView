@@ -792,6 +792,7 @@ def _make_job(
         "keywords": keywords or [],
         "match_score": 0.0,
         "scraped_at": datetime.utcnow().isoformat(),
+        "status": "new",
     }
 
 

@@ -86,6 +86,15 @@ export async function parseResumeInfo(resumeFile: File): Promise<{
   return post("/api/parse-resume-info", fd)
 }
 
+export async function fetchJobDescription(jobId: string): Promise<{ description: string }> {
+  const res = await fetch(`/api/jobs/${jobId}/fetch-description`, { method: "POST" })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail ?? "Failed to fetch description")
+  }
+  return res.json()
+}
+
 export async function listJobs(status?: string): Promise<{ jobs: Job[] }> {
   const url = status ? `/api/jobs?status=${status}` : "/api/jobs"
   const res = await fetch(url)

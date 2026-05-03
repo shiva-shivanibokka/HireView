@@ -121,9 +121,9 @@ def score_jobs_batch(
 
     for i, job in enumerate(jobs):
         semantic = float(np.dot(profile_emb, job_embs[i]))
-        semantic = max(0.0, semantic)
+        semantic = min(1.0, max(0.0, semantic))  # clamp to [0, 1]
         keyword = _keyword_overlap(texts[i], keywords)
-        job["match_score"] = round(semantic * 0.6 + keyword * 0.4, 4)
+        job["match_score"] = round(min(1.0, semantic * 0.6 + keyword * 0.4), 4)
 
     return sorted(jobs, key=lambda j: j["match_score"], reverse=True)
 

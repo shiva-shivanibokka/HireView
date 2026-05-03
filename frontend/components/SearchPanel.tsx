@@ -12,19 +12,28 @@ interface Props {
   profile:         UserProfile
   onProfileChange: (p: UserProfile) => void
   onJobsFound:     (jobs: Job[]) => void
+  resumeFile:      File | null
+  onResumeFile:    (f: File | null) => void
 }
 
 const LOCATIONS = [
-  { label: "🇺🇸  USA",    value: "United States" },
-  { label: "🇪🇺  Europe", value: "Europe"        },
-  { label: "🇮🇳  India",  value: "India"         },
-  { label: "🌐  Remote", value: "remote"        },
+  { label: "USA",    value: "United States" },
+  { label: "Europe", value: "Europe"        },
+  { label: "India",  value: "India"         },
 ]
 
-export default function SearchPanel({ profile, onProfileChange, onJobsFound }: Props) {
+const JOB_TYPES = [
+  { label: "Full-time",  value: "fulltime"  },
+  { label: "Internship", value: "internship"},
+  { label: "Contract",   value: "contract"  },
+  { label: "Remote",     value: "remote"    },
+  { label: "Hybrid",     value: "hybrid"    },
+]
+
+export default function SearchPanel({ profile, onProfileChange, onJobsFound, resumeFile, onResumeFile }: Props) {
   const [keywords, setKeywords]         = useState("")
   const [location, setLocation]         = useState("United States")
-  const [resumeFile, setResumeFile]     = useState<File | null>(null)
+  const [jobTypes, setJobTypes]         = useState<string[]>(["fulltime"])
   const [resumeParsed, setResumeParsed] = useState(false)
   const [loading, setLoading]           = useState(false)
   const [parsing, setParsing]           = useState(false)
@@ -37,13 +46,18 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
   const [useAB, setUseAB]               = useState(true)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  function toggleJobType(val: string) {
+    setJobTypes(prev =>
+      prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val]
+    )
+  }
+
   async function handleResumeUpload(file: File) {
-    setResumeFile(file)
+    onResumeFile(file)
     setResumeParsed(false)
     setParsing(true)
     try {
       const info = await parseResumeInfo(file)
-      // Only overwrite fields that are currently empty
       onProfileChange({
         name:            profile.name            || info.name            || "",
         email:           profile.email           || info.email           || "",
@@ -55,7 +69,7 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
       })
       setResumeParsed(true)
     } catch {
-      // Silent — just don't auto-populate
+      // silent — profile stays as-is
     } finally {
       setParsing(false)
     }
@@ -67,8 +81,11 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
     setError("")
     setLoading(true)
     try {
+      // Append job type keywords to help with filtering
+      const typeKeywords = jobTypes.includes("remote") ? `${keywords} remote` : keywords
       const res = await searchJobs({
-        keywords, location,
+        keywords: typeKeywords,
+        location,
         resumeFile,
         adzunaAppId: adzunaId, adzunaAppKey: adzunaKey,
         useGreenhouse: useGH, useLever: useLV, useAshby: useAB,
@@ -99,30 +116,33 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
         />
       </div>
 
-      {/* Location — preset pill buttons */}
+      {/* Location */}
       <div style={{ marginBottom: 8 }}>
-        <div style={{
-          fontSize: 11, color: "var(--muted)", marginBottom: 5,
-          display: "flex", alignItems: "center", gap: 4,
-        }}>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 5, display: "flex", alignItems: "center", gap: 4 }}>
           <GlobeIcon size={11} /> Location
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", gap: 6 }}>
           {LOCATIONS.map(loc => (
-            <button key={loc.value} onClick={() => setLocation(loc.value)} style={{
-              padding: "5px 12px", borderRadius: 20, border: "1px solid",
-              borderColor: location === loc.value ? "var(--accent)" : "var(--border)",
-              background:  location === loc.value ? "var(--accent)" : "var(--surface2)",
-              color:       location === loc.value ? "#fff" : "var(--muted)",
-              fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
-            }}>
+            <button key={loc.value} onClick={() => setLocation(loc.value)} style={pillStyle(location === loc.value)}>
               {loc.label}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Resume upload — auto-parses contact info on upload */}
+      {/* Job Type */}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 5 }}>Job Type</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {JOB_TYPES.map(jt => (
+            <button key={jt.value} onClick={() => toggleJobType(jt.value)} style={pillStyle(jobTypes.includes(jt.value))}>
+              {jt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Resume upload */}
       <div
         onClick={() => fileRef.current?.click()}
         style={{
@@ -146,15 +166,15 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
             ? "Parsing resume…"
             : resumeFile
               ? resumeParsed
-                ? `${resumeFile.name} — contact info extracted`
+                ? `${resumeFile.name} — info extracted`
                 : resumeFile.name
-              : "Upload resume (PDF or DOCX) — contact info auto-filled"}
+              : "Upload resume (PDF or DOCX)"}
         </span>
         <input ref={fileRef} type="file" accept=".pdf,.docx" hidden
           onChange={e => { const f = e.target.files?.[0]; if (f) handleResumeUpload(f) }} />
       </div>
 
-      {/* LinkedIn + GitHub — shown so user can verify/override what was parsed */}
+      {/* LinkedIn + GitHub — verify/override what was parsed */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 8 }}>
         {([
           ["LinkedIn", "linkedin_url", "linkedin.com/in/…"   ],
@@ -218,6 +238,16 @@ export default function SearchPanel({ profile, onProfileChange, onJobsFound }: P
       </button>
     </div>
   )
+}
+
+function pillStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: "5px 12px", borderRadius: 20, border: "1px solid",
+    borderColor: active ? "var(--accent)" : "var(--border)",
+    background:  active ? "var(--accent)" : "var(--surface2)",
+    color:       active ? "#fff" : "var(--muted)",
+    fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s",
+  }
 }
 
 function inputStyle(extra: React.CSSProperties = {}): React.CSSProperties {

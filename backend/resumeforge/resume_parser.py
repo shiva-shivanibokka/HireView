@@ -239,6 +239,20 @@ RESUME TEXT:
         parsed["name"] = _find_name(raw_text)
 
     parsed["raw_text"] = raw_text
+
+    # Normalize URL keys — ensure both linkedin/linkedin_url and github/github_url exist
+    # so downstream consumers (api.py, resume_builder.py) find them regardless of which key they use
+    li = parsed.get("linkedin") or parsed.get("linkedin_url") or ""
+    gh = parsed.get("github") or parsed.get("github_url") or ""
+    if li and not li.startswith("http"):
+        li = f"https://{li}"
+    if gh and not gh.startswith("http"):
+        gh = f"https://{gh}"
+    parsed["linkedin"] = li
+    parsed["linkedin_url"] = li
+    parsed["github"] = gh
+    parsed["github_url"] = gh
+
     return parsed
 
 
