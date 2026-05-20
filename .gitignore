@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Environment
+backend/.env
+*.env
+
+# Database
+backend/data/
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# OS
+.DS_Store
+Thumbs.db
+nul
+
+# Editor
+.vscode/
+.idea/
+*.swp

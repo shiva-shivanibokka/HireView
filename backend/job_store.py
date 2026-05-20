@@ -1,10 +1,6 @@
 """
 job_store.py
-SQLite persistence layer for AutoApply Job Agent.
-
-Tables:
-  jobs         — scraped/fetched job listings
-  applications — autofill history (which jobs were filled, with which resume)
+SQLite persistence layer for HireView.
 """
 
 import sqlite3
@@ -24,83 +20,125 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_db():
-    """Create tables if they don't exist."""
-    with _conn() as con:
-        con.executescript("""
+    con = _conn()
+    try:
+        con.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             id              TEXT PRIMARY KEY,
             title           TEXT NOT NULL,
             company         TEXT NOT NULL,
             location        TEXT,
-            job_type        TEXT,
+            job_type        TEXT DEFAULT '',
+            workplace       TEXT DEFAULT '',
             source          TEXT,
             url             TEXT,
             description     TEXT,
-            required_skills TEXT,   -- JSON array
-            keywords        TEXT,   -- JSON array
+            required_skills TEXT,
+            keywords        TEXT,
             match_score     REAL DEFAULT 0,
             scraped_at      TEXT,
-            status          TEXT DEFAULT 'new'  -- new | generated | filled | dismissed
-        );
-
-        CREATE TABLE IF NOT EXISTS applications (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            job_id          TEXT NOT NULL,
-            job_title       TEXT,
-            company         TEXT,
-            resume_pdf_path TEXT,
-            cover_letter_path TEXT,
-            cover_letter_text TEXT,
-            filled_at       TEXT,
-            notes           TEXT,
-            FOREIGN KEY (job_id) REFERENCES jobs(id)
-        );
+            posted_at       TEXT DEFAULT '',
+            status          TEXT DEFAULT 'new'
+        )
         """)
+        con.commit()
 
-
-# ── Jobs ──────────────────────────────────────────────────────────────────────
+        # Add new columns to existing databases without breaking the transaction
+        existing = {row[1] for row in con.execute("PRAGMA table_info(jobs)")}
+        for col, dflt in [
+            ("posted_at", "TEXT DEFAULT ''"),
+            ("workplace", "TEXT DEFAULT ''"),
+        ]:
+            if col not in existing:
+                con.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dflt}")
+        con.commit()
+    finally:
+        con.close()
 
 
 def upsert_job(job: dict):
-    """Insert or replace a job. job must have an 'id' field."""
+    """
+    Insert or update a job row.
+    - status is preserved from the existing row on re-scrape
+    - scraped_at is preserved from the existing row so it reflects first-seen time
+    - All other fields are updated to the latest scraped values
+    """
     with _conn() as con:
-        con.execute(
-            """
-            INSERT OR REPLACE INTO jobs
-              (id, title, company, location, job_type, source, url,
-               description, required_skills, keywords, match_score, scraped_at, status)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,
-              COALESCE((SELECT status FROM jobs WHERE id=?), 'new'))
-        """,
-            (
-                job["id"],
-                job.get("title", ""),
-                job.get("company", ""),
-                job.get("location", ""),
-                job.get("job_type", ""),
-                job.get("source", ""),
-                job.get("url", ""),
-                job.get("description", ""),
-                json.dumps(job.get("required_skills", [])),
-                json.dumps(job.get("keywords", [])),
-                job.get("match_score", 0),
-                job.get("scraped_at", datetime.utcnow().isoformat()),
-                job["id"],
-            ),
-        )
+        existing = con.execute(
+            "SELECT status, scraped_at FROM jobs WHERE id=?", (job["id"],)
+        ).fetchone()
 
-
-def get_jobs(status: Optional[str] = None, limit: int = 100) -> list[dict]:
-    with _conn() as con:
-        if status:
-            rows = con.execute(
-                "SELECT * FROM jobs WHERE status=? ORDER BY match_score DESC LIMIT ?",
-                (status, limit),
-            ).fetchall()
+        if existing:
+            con.execute(
+                """
+                UPDATE jobs SET
+                  title=?, company=?, location=?, job_type=?, workplace=?,
+                  source=?, url=?, description=?, required_skills=?,
+                  keywords=?, match_score=?, posted_at=?
+                WHERE id=?
+                """,
+                (
+                    job.get("title", ""),
+                    job.get("company", ""),
+                    job.get("location", ""),
+                    job.get("job_type", ""),
+                    job.get("workplace", ""),
+                    job.get("source", ""),
+                    job.get("url", ""),
+                    job.get("description", ""),
+                    json.dumps(job.get("required_skills", [])),
+                    json.dumps(job.get("keywords", [])),
+                    job.get("match_score", 0),
+                    job.get("posted_at", ""),
+                    job["id"],
+                ),
+            )
         else:
-            rows = con.execute(
-                "SELECT * FROM jobs ORDER BY match_score DESC LIMIT ?", (limit,)
-            ).fetchall()
+            con.execute(
+                """
+                INSERT INTO jobs
+                  (id, title, company, location, job_type, workplace, source, url,
+                   description, required_skills, keywords, match_score,
+                   scraped_at, posted_at, status)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new')
+                """,
+                (
+                    job["id"],
+                    job.get("title", ""),
+                    job.get("company", ""),
+                    job.get("location", ""),
+                    job.get("job_type", ""),
+                    job.get("workplace", ""),
+                    job.get("source", ""),
+                    job.get("url", ""),
+                    job.get("description", ""),
+                    json.dumps(job.get("required_skills", [])),
+                    json.dumps(job.get("keywords", [])),
+                    job.get("match_score", 0),
+                    job.get("scraped_at", datetime.utcnow().isoformat()),
+                    job.get("posted_at", ""),
+                ),
+            )
+
+
+def get_jobs(
+    status: Optional[str] = None,
+    sort: str = "newest",
+    limit: Optional[int] = None,
+) -> list[dict]:
+    order = (
+        "COALESCE(NULLIF(posted_at,''), scraped_at) DESC"
+        if sort == "newest"
+        else "match_score DESC"
+    )
+    where = "WHERE status=?" if status else ""
+    params: list = [status] if status else []
+    query = f"SELECT * FROM jobs {where} ORDER BY {order}"
+    if limit:
+        query += " LIMIT ?"
+        params.append(limit)
+    with _conn() as con:
+        rows = con.execute(query, params).fetchall()
     return [_row_to_job(r) for r in rows]
 
 
@@ -115,11 +153,6 @@ def update_job_status(job_id: str, status: str):
         con.execute("UPDATE jobs SET status=? WHERE id=?", (status, job_id))
 
 
-def update_job_match_score(job_id: str, score: float):
-    with _conn() as con:
-        con.execute("UPDATE jobs SET match_score=? WHERE id=?", (score, job_id))
-
-
 def _row_to_job(row: sqlite3.Row) -> dict:
     d = dict(row)
     d["required_skills"] = json.loads(d.get("required_skills") or "[]")
@@ -127,48 +160,4 @@ def _row_to_job(row: sqlite3.Row) -> dict:
     return d
 
 
-# ── Applications ──────────────────────────────────────────────────────────────
-
-
-def log_application(
-    job_id: str,
-    job_title: str,
-    company: str,
-    resume_pdf_path: str,
-    cover_letter_path: str,
-    cover_letter_text: str,
-    notes: str = "",
-) -> int:
-    with _conn() as con:
-        cur = con.execute(
-            """
-            INSERT INTO applications
-              (job_id, job_title, company, resume_pdf_path,
-               cover_letter_path, cover_letter_text, filled_at, notes)
-            VALUES (?,?,?,?,?,?,?,?)
-        """,
-            (
-                job_id,
-                job_title,
-                company,
-                resume_pdf_path,
-                cover_letter_path,
-                cover_letter_text,
-                datetime.utcnow().isoformat(),
-                notes,
-            ),
-        )
-        update_job_status(job_id, "filled")
-        return cur.lastrowid
-
-
-def get_applications(limit: int = 50) -> list[dict]:
-    with _conn() as con:
-        rows = con.execute(
-            "SELECT * FROM applications ORDER BY filled_at DESC LIMIT ?", (limit,)
-        ).fetchall()
-    return [dict(r) for r in rows]
-
-
-# Initialise on import
 init_db()

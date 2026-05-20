@@ -23,14 +23,15 @@ Company lists are NOT hardcoded. They come from:
 
 import re
 import json
+import time
 import hashlib
 import requests
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 from bs4 import BeautifulSoup  # type: ignore[import-untyped]
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 
 HEADERS = {
     "User-Agent": (
@@ -38,20 +39,21 @@ HEADERS = {
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
 }
 
 # Disk cache path — persists across app restarts
 CACHE_FILE = Path(__file__).parent / "data" / "company_cache.json"
 CACHE_TTL_HOURS = 24
 
-# ── Curated company lists ─────────────────────────────────────────────────────
 # Always merged on top of Simplify data as a gap-filler.
 # Covers every major AI/ML, cloud, infra, fintech, and high-growth tech company.
 # Organised by ATS platform (Greenhouse / Lever / Ashby).
 
 FALLBACK_GREENHOUSE = [
-    # ── Frontier AI Labs ──────────────────────────────────────────────────────
     "anthropic",
     "openai",
     "cohere",
@@ -66,7 +68,6 @@ FALLBACK_GREENHOUSE = [
     "ai21labs",
     "tii",
     "technion",
-    # ── AI Agents & Coding Assistants ─────────────────────────────────────────
     "codeium",
     "tabnine",
     "sourcegraph",
@@ -75,7 +76,6 @@ FALLBACK_GREENHOUSE = [
     "sweep-ai",
     "factory-ai",
     "cosine-ai",
-    # ── AI Infrastructure & Serving ───────────────────────────────────────────
     "scale-ai",
     "huggingface",
     "together-ai",
@@ -93,13 +93,11 @@ FALLBACK_GREENHOUSE = [
     "bentoml",
     "seldon",
     "truefoundry",
-    # ── Vector Databases ──────────────────────────────────────────────────────
     "pinecone",
     "weaviate",
     "qdrant",
     "milvusio",
     "chroma",
-    # ── MLOps, Experiment Tracking, Feature Stores ────────────────────────────
     "arize-ai",
     "whylabs",
     "fiddler-ai",
@@ -112,7 +110,6 @@ FALLBACK_GREENHOUSE = [
     "tecton",
     "feast-dev",
     "hopsworks",
-    # ── Data Engineering & Warehousing ────────────────────────────────────────
     "databricks",
     "snowflake",
     "dbt-labs",
@@ -132,7 +129,6 @@ FALLBACK_GREENHOUSE = [
     "anomalo",
     "soda-data",
     "lightup-data",
-    # ── Data Labeling & Annotation ────────────────────────────────────────────
     "labelbox",
     "scale-ai",
     "snorkel-ai",
@@ -141,7 +137,6 @@ FALLBACK_GREENHOUSE = [
     "diffgram",
     "encord",
     "dataloop",
-    # ── Cloud & Infrastructure ────────────────────────────────────────────────
     "hashicorp",
     "pulumi",
     "teleport",
@@ -155,7 +150,6 @@ FALLBACK_GREENHOUSE = [
     "nitric",
     "shuttle",
     "porter-dev",
-    # ── Observability & DevOps ────────────────────────────────────────────────
     "honeycomb-io",
     "lightstep",
     "incident-io",
@@ -164,7 +158,6 @@ FALLBACK_GREENHOUSE = [
     "grafana",
     "chronosphere",
     "last9",
-    # ── Developer Tools & Platforms ───────────────────────────────────────────
     "figma",
     "notion",
     "linear",
@@ -183,12 +176,10 @@ FALLBACK_GREENHOUSE = [
     "readme",
     "stoplight",
     "bump-sh",
-    # ── Search & Discovery ────────────────────────────────────────────────────
     "algolia",
     "elastic",
     "typesense",
     "meilisearch",
-    # ── Feature Flags & Experimentation ──────────────────────────────────────
     "launchdarkly",
     "statsig",
     "eppo",
@@ -196,7 +187,6 @@ FALLBACK_GREENHOUSE = [
     "optimizely",
     "flagsmith",
     "growthbook",
-    # ── Security ──────────────────────────────────────────────────────────────
     "snyk",
     "lacework",
     "orca-security",
@@ -209,7 +199,6 @@ FALLBACK_GREENHOUSE = [
     "nightfall",
     "skyflow",
     "evervault",
-    # ── Fintech ───────────────────────────────────────────────────────────────
     "stripe",
     "plaid",
     "brex",
@@ -226,7 +215,6 @@ FALLBACK_GREENHOUSE = [
     "alpaca",
     "polygon-io",
     "tradier",
-    # ── HR, Payroll & Compliance ──────────────────────────────────────────────
     "lattice",
     "rippling",
     "deel",
@@ -236,7 +224,6 @@ FALLBACK_GREENHOUSE = [
     "finch-api",
     "pave",
     "comprehensive-io",
-    # ── Healthcare & BioTech ──────────────────────────────────────────────────
     "commure",
     "ro",
     "cerebral",
@@ -250,7 +237,6 @@ FALLBACK_GREENHOUSE = [
     "absci",
     "inceptive",
     "profluent",
-    # ── Autonomous Vehicles & Robotics ────────────────────────────────────────
     "zoox",
     "waymo",
     "aurora",
@@ -261,7 +247,6 @@ FALLBACK_GREENHOUSE = [
     "argo-ai",
     "boston-dynamics",
     "figure-ai",
-    # ── Climate & Energy Tech ─────────────────────────────────────────────────
     "climateai",
     "watershed",
     "patch",
@@ -270,13 +255,11 @@ FALLBACK_GREENHOUSE = [
     "swell-energy",
     "anza",
     "banyan-infrastructure",
-    # ── E-commerce & Marketplace ──────────────────────────────────────────────
     "shopify",
     "faire",
     "flexport",
     "stord",
     "convictional",
-    # ── Productivity & Collaboration ──────────────────────────────────────────
     "notion",
     "coda",
     "craft",
@@ -285,7 +268,6 @@ FALLBACK_GREENHOUSE = [
     "height-app",
     "plane-so",
     "shortcut",
-    # ── Analytics & BI ───────────────────────────────────────────────────────
     "amplitude",
     "mixpanel",
     "heap",
@@ -295,7 +277,6 @@ FALLBACK_GREENHOUSE = [
     "june-so",
     "koala",
     "clearbit",
-    # ── Communications & AI Voice ─────────────────────────────────────────────
     "twilio",
     "sendgrid",
     "postmark",
@@ -304,7 +285,6 @@ FALLBACK_GREENHOUSE = [
     "deepgram",
     "rev-ai",
     "speechmatics",
-    # ── EdTech ────────────────────────────────────────────────────────────────
     "duolingo",
     "quizlet",
     "khan-academy",
@@ -312,7 +292,6 @@ FALLBACK_GREENHOUSE = [
     "coursera",
     "outschool",
     "synthesis",
-    # ── Legal Tech ────────────────────────────────────────────────────────────
     "harvey",
     "clio",
     "ironclad",
@@ -323,7 +302,6 @@ FALLBACK_GREENHOUSE = [
 ]
 
 FALLBACK_LEVER = [
-    # ── Big Tech & Established ────────────────────────────────────────────────
     "netflix",
     "lyft",
     "reddit",
@@ -338,7 +316,6 @@ FALLBACK_LEVER = [
     "zendesk",
     "surveymonkey",
     "hootsuite",
-    # ── AI & ML ───────────────────────────────────────────────────────────────
     "clarifai",
     "roboflow",
     "landing-ai",
@@ -349,7 +326,6 @@ FALLBACK_LEVER = [
     "comet-ml",
     "neptune-ai",
     "valohai",
-    # ── Data & Analytics ──────────────────────────────────────────────────────
     "lightdash",
     "metabase",
     "mode-analytics",
@@ -360,7 +336,6 @@ FALLBACK_LEVER = [
     "census-data",
     "hightouch",
     "polytomic",
-    # ── Infrastructure & Cloud ────────────────────────────────────────────────
     "cockroachdb",
     "planetscale",
     "neon",
@@ -372,7 +347,6 @@ FALLBACK_LEVER = [
     "temporal",
     "inngest",
     "trigger-dev",
-    # ── Developer Tools ───────────────────────────────────────────────────────
     "doppler",
     "infisical",
     "vault-by-hashicorp",
@@ -382,14 +356,12 @@ FALLBACK_LEVER = [
     "mintlify",
     "gitbook",
     "archbee",
-    # ── Security ──────────────────────────────────────────────────────────────
     "drata",
     "vanta",
     "secureframe",
     "tugboat-logic",
     "anecdotes",
     "hyperproof",
-    # ── Fintech & Crypto ──────────────────────────────────────────────────────
     "affirm",
     "marqeta",
     "chime",
@@ -401,7 +373,6 @@ FALLBACK_LEVER = [
     "alchemy",
     "quicknode",
     "moralis",
-    # ── Sales & Marketing Tech ────────────────────────────────────────────────
     "outreach",
     "salesloft",
     "gong-io",
@@ -413,7 +384,6 @@ FALLBACK_LEVER = [
     "apollo-io",
     "instantly",
     "smartlead",
-    # ── HR Tech ───────────────────────────────────────────────────────────────
     "greenhouse",
     "lever",
     "ashby",
@@ -422,7 +392,6 @@ FALLBACK_LEVER = [
     "15five",
     "leapsome",
     "culture-amp",
-    # ── EdTech & Consumer ─────────────────────────────────────────────────────
     "miro",
     "loom",
     "pitch",
@@ -430,13 +399,11 @@ FALLBACK_LEVER = [
     "read-ai",
     "otter-ai",
     "fireflies-ai",
-    # ── Healthcare ────────────────────────────────────────────────────────────
     "health-gorilla",
     "redox",
     "zus-health",
     "canvas-medical",
     "elation-health",
-    # ── Real Estate & PropTech ────────────────────────────────────────────────
     "opendoor",
     "offerpad",
     "knock",
@@ -444,7 +411,6 @@ FALLBACK_LEVER = [
     "doorstead",
     "atlas",
     "lessen",
-    # ── Supply Chain & Logistics ──────────────────────────────────────────────
     "project44",
     "fourkites",
     "visible-scm",
@@ -454,7 +420,6 @@ FALLBACK_LEVER = [
 ]
 
 FALLBACK_ASHBY = [
-    # ── Frontier AI / Agents (Ashby-heavy) ───────────────────────────────────
     "mistral",
     "perplexity",
     "harvey",
@@ -471,7 +436,6 @@ FALLBACK_ASHBY = [
     "aider-chat",
     "plandex",
     "mentat",
-    # ── AI Coding & Dev Tools ─────────────────────────────────────────────────
     "codeium",
     "tabnine",
     "sourcegraph",
@@ -484,7 +448,6 @@ FALLBACK_ASHBY = [
     "daytona",
     "gitpod",
     "coder",
-    # ── AI Applications & Vertical AI ─────────────────────────────────────────
     "luma-ai",
     "runway",
     "pika-labs",
@@ -509,7 +472,6 @@ FALLBACK_ASHBY = [
     "guru",
     "tettra",
     "notion-ai",
-    # ── AI Infrastructure & Compute ───────────────────────────────────────────
     "modal-labs",
     "baseten",
     "fireworks-ai",
@@ -526,7 +488,6 @@ FALLBACK_ASHBY = [
     "together-ai",
     "lepton-ai",
     "mystic",
-    # ── LLM Ops & Evaluation ──────────────────────────────────────────────────
     "langchain",
     "llamaindex",
     "brainlid",
@@ -539,7 +500,6 @@ FALLBACK_ASHBY = [
     "braintrust-data",
     "log10-io",
     "patronus-ai",
-    # ── Robotics & Embodied AI ────────────────────────────────────────────────
     "physical-intelligence",
     "covariant",
     "1x-technologies",
@@ -552,7 +512,6 @@ FALLBACK_ASHBY = [
     "viam-robotics",
     "formant",
     "formant-io",
-    # ── AI for Science & Bio ──────────────────────────────────────────────────
     "inceptive",
     "profluent",
     "openfold",
@@ -562,14 +521,12 @@ FALLBACK_ASHBY = [
     "enveda",
     "peptone",
     "charm-therapeutics",
-    # ── Search & Knowledge ────────────────────────────────────────────────────
     "perplexity",
     "you-com",
     "metaphor-systems",
     "exa-ai",
     "kagi",
     "phind",
-    # ── Developer Experience ──────────────────────────────────────────────────
     "linear",
     "raycast",
     "superhuman",
@@ -584,7 +541,6 @@ FALLBACK_ASHBY = [
     "unkey",
     "stytch",
     "hanko",
-    # ── Infrastructure for AI Apps ────────────────────────────────────────────
     "langsmith",
     "weaviate",
     "qdrant",
@@ -592,7 +548,6 @@ FALLBACK_ASHBY = [
     "turbopuffer",
     "lancedb",
     "vespa-engine",
-    # ── B2B SaaS & Vertical AI ────────────────────────────────────────────────
     "ashby",
     "gem",
     "dover",
@@ -603,13 +558,11 @@ FALLBACK_ASHBY = [
     "arc-dev",
     "lemon-io",
     "toptal",
-    # ── Fintech & Crypto ──────────────────────────────────────────────────────
     "moonpay",
     "privy",
     "dynamic-xyz",
     "particle-network",
     "turnkey",
-    # ── Consumer & Social ─────────────────────────────────────────────────────
     "bereal",
     "artifact-news",
     "read-cv",
@@ -618,7 +571,6 @@ FALLBACK_ASHBY = [
     "lens-protocol",
 ]
 
-# ── Simplify live JSON sources ────────────────────────────────────────────────
 # Both repos are maintained by the community and updated daily.
 # New-Grad has full-time roles. Summer2026 has broader company coverage.
 
@@ -636,9 +588,13 @@ def _load_disk_cache() -> dict | None:
         if not CACHE_FILE.exists():
             return None
         data = json.loads(CACHE_FILE.read_text(encoding="utf-8"))
-        fetched_at = datetime.fromisoformat(data.get("fetched_at", "2000-01-01"))
-        if datetime.utcnow() - fetched_at > timedelta(hours=CACHE_TTL_HOURS):
-            return None  # stale
+        fetched_at = datetime.fromisoformat(
+            data.get("fetched_at", "2000-01-01T00:00:00+00:00")
+        )
+        if fetched_at.tzinfo is None:
+            fetched_at = fetched_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - fetched_at > timedelta(hours=CACHE_TTL_HOURS):
+            return None
         return data.get("companies")
     except Exception:
         return None
@@ -651,7 +607,7 @@ def _save_disk_cache(companies: dict):
         CACHE_FILE.write_text(
             json.dumps(
                 {
-                    "fetched_at": datetime.utcnow().isoformat(),
+                    "fetched_at": datetime.now(timezone.utc).isoformat(),
                     "companies": companies,
                 },
                 indent=2,
@@ -694,24 +650,45 @@ def _fetch_simplify_companies() -> dict:
                     if not link:
                         continue
 
+                    _INVALID_SLUGS = {
+                        "embed",
+                        "job_board",
+                        "jobs",
+                        "postings",
+                        "api",
+                        "apply",
+                    }
+
                     gh = re.search(r"boards\.greenhouse\.io/([^/?#\s]+)", link)
                     if gh:
                         slug = gh.group(1).lower().split("?")[0]
-                        if slug and slug not in result["greenhouse"]:
+                        if (
+                            slug
+                            and slug not in _INVALID_SLUGS
+                            and slug not in result["greenhouse"]
+                        ):
                             result["greenhouse"].append(slug)
                         continue
 
                     lv = re.search(r"jobs\.lever\.co/([^/?#\s]+)", link)
                     if lv:
                         slug = lv.group(1).lower().split("?")[0]
-                        if slug and slug not in result["lever"]:
+                        if (
+                            slug
+                            and slug not in _INVALID_SLUGS
+                            and slug not in result["lever"]
+                        ):
                             result["lever"].append(slug)
                         continue
 
                     ab = re.search(r"jobs\.ashbyhq\.com/([^/?#\s]+)", link)
                     if ab:
                         slug = ab.group(1).lower().split("?")[0]
-                        if slug and slug not in result["ashby"]:
+                        if (
+                            slug
+                            and slug not in _INVALID_SLUGS
+                            and slug not in result["ashby"]
+                        ):
                             result["ashby"].append(slug)
                         continue
 
@@ -739,33 +716,29 @@ def get_company_lists(
     simplify = _fetch_simplify_companies()
 
     def merge(simplify_list: list, fallback: list, custom: list | None) -> list:
-        combined = list(simplify_list)
-        for slug in fallback:
-            if slug not in combined:
-                combined.append(slug)
-        for slug in custom or []:
+        seen: set = set()
+        combined: list = []
+        for slug in list(simplify_list) + list(fallback) + list(custom or []):
             slug = slug.strip().lower()
-            if slug and slug not in combined:
+            if slug and slug not in seen:
+                seen.add(slug)
                 combined.append(slug)
         return combined
 
-    return {
-        "greenhouse": merge(
-            simplify.get("greenhouse", []), FALLBACK_GREENHOUSE, custom_greenhouse
-        ),
-        "lever": merge(simplify.get("lever", []), FALLBACK_LEVER, custom_lever),
-        "ashby": merge(simplify.get("ashby", []), FALLBACK_ASHBY, custom_ashby),
-    }
+    gh = merge(simplify.get("greenhouse", []), FALLBACK_GREENHOUSE, custom_greenhouse)
+    lv = merge(simplify.get("lever", []), FALLBACK_LEVER, custom_lever)
+    ab = merge(simplify.get("ashby", []), FALLBACK_ASHBY, custom_ashby)
 
+    # Remove cross-list duplicates: if a slug appears in multiple ATS sources,
+    # keep it only in the first list it appears in (Greenhouse > Lever > Ashby)
+    lv = [s for s in lv if s not in set(gh)]
+    ab = [s for s in ab if s not in set(gh) and s not in set(lv)]
 
-# ── Job ID helper ─────────────────────────────────────────────────────────────
+    return {"greenhouse": gh, "lever": lv, "ashby": ab}
 
 
 def _job_id(url: str) -> str:
     return hashlib.md5(url.encode()).hexdigest()[:16]
-
-
-# ── Normalised job schema ─────────────────────────────────────────────────────
 
 
 def _make_job(
@@ -774,10 +747,12 @@ def _make_job(
     location: str,
     url: str,
     description: str = "",
-    job_type: str = "",
+    job_type: str = "",  # full-time | part-time | contract | internship
+    workplace: str = "",  # remote | hybrid | onsite
     source: str = "",
     required_skills: list | None = None,
     keywords: list | None = None,
+    posted_at: str = "",
 ) -> dict:
     return {
         "id": _job_id(url),
@@ -787,16 +762,48 @@ def _make_job(
         "url": url.strip(),
         "description": description.strip(),
         "job_type": job_type,
+        "workplace": workplace,
         "source": source,
         "required_skills": required_skills or [],
         "keywords": keywords or [],
         "match_score": 0.0,
-        "scraped_at": datetime.utcnow().isoformat(),
+        "scraped_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "posted_at": posted_at,
         "status": "new",
     }
 
 
-# ── 1. Adzuna API ─────────────────────────────────────────────────────────────
+def _normalise_workplace(raw: str) -> str:
+    """Normalise various workplace strings to: remote | hybrid | onsite"""
+    v = raw.lower().strip()
+    if any(
+        x in v for x in ["remote", "distributed", "work from home", "wfh", "anywhere"]
+    ):
+        return "remote"
+    if "hybrid" in v:
+        return "hybrid"
+    if any(
+        x in v
+        for x in ["onsite", "on-site", "on site", "in office", "in-office", "office"]
+    ):
+        return "onsite"
+    return ""
+
+
+def _normalise_job_type(raw: str) -> str:
+    """Normalise various job type strings to: full-time | part-time | contract | internship"""
+    v = raw.lower().strip()
+    if any(x in v for x in ["intern", "internship", "placement", "co-op", "coop"]):
+        return "internship"
+    if any(x in v for x in ["part", "part-time", "parttime"]):
+        return "part-time"
+    if any(
+        x in v for x in ["contract", "freelance", "consultant", "temp", "temporary"]
+    ):
+        return "contract"
+    if any(x in v for x in ["full", "full-time", "fulltime", "permanent"]):
+        return "full-time"
+    return ""
 
 
 def search_adzuna(
@@ -847,7 +854,7 @@ def search_adzuna(
             location=(r.get("location") or {}).get("display_name", ""),
             url=r.get("redirect_url", ""),
             description=r.get("description", ""),
-            job_type=r.get("contract_time", ""),
+            job_type=_normalise_job_type(r.get("contract_time", "")),
             source="adzuna",
         )
         for r in data.get("results", [])
@@ -855,23 +862,74 @@ def search_adzuna(
     ]
 
 
-# ── 2. Greenhouse scraper ─────────────────────────────────────────────────────
-
-
 def _scrape_greenhouse(company_slug: str, keywords: list) -> list:
-    url = f"https://boards.greenhouse.io/{company_slug}/jobs"
+    """
+    Uses the Greenhouse boards JSON API which returns first_published date.
+    Falls back to HTML scraping if the API returns a non-200.
+    """
+    api_url = f"https://boards-api.greenhouse.io/v1/boards/{company_slug}/jobs"
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp = requests.get(api_url, headers=HEADERS, timeout=12)
+        if resp.status_code == 200:
+            return _parse_greenhouse_json(resp.json(), company_slug, keywords)
+    except Exception:
+        pass
+
+    # HTML fallback
+    html_url = f"https://boards.greenhouse.io/{company_slug}/jobs"
+    try:
+        resp = requests.get(html_url, headers=HEADERS, timeout=12)
         if resp.status_code != 200:
             return []
-        soup = BeautifulSoup(resp.text, "html.parser")
+        return _parse_greenhouse_html(resp.text, company_slug, keywords)
     except Exception:
         return []
 
+
+def _parse_greenhouse_json(data: dict, company_slug: str, keywords: list) -> list:
+    jobs = []
+    kw_lower = [k.lower() for k in keywords]
+    for j in data.get("jobs", []):
+        title = str(j.get("title") or "")
+        if kw_lower and not any(kw in title.lower() for kw in kw_lower):
+            continue
+        job_url = str(j.get("absolute_url") or "")
+        location = str((j.get("location") or {}).get("name") or "")
+        company = str(
+            j.get("company_name")
+            or company_slug.replace("-", " ").replace("_", " ").title()
+        )
+        posted = str(j.get("first_published") or "")
+        # Extract workplace from metadata (Greenhouse stores it there)
+        workplace = ""
+        for m in j.get("metadata") or []:
+            if str(m.get("name") or "").lower() == "location type":
+                workplace = _normalise_workplace(str(m.get("value") or ""))
+                break
+        # Infer remote from location string if metadata didn't have it
+        if not workplace:
+            workplace = _normalise_workplace(location)
+        if not job_url:
+            continue
+        jobs.append(
+            _make_job(
+                title=title,
+                company=company,
+                location=location,
+                url=job_url,
+                source="greenhouse",
+                posted_at=posted,
+                workplace=workplace,
+            )
+        )
+    return jobs
+
+
+def _parse_greenhouse_html(html: str, company_slug: str, keywords: list) -> list:
+    soup = BeautifulSoup(html, "html.parser")
     jobs = []
     kw_lower = [k.lower() for k in keywords]
     company_name = company_slug.replace("-", " ").replace("_", " ").title()
-
     for opening in soup.find_all("div", class_="opening"):
         a_tag = opening.find("a")
         if not a_tag:
@@ -881,15 +939,12 @@ def _scrape_greenhouse(company_slug: str, keywords: list) -> list:
         job_url = (
             href if href.startswith("http") else f"https://boards.greenhouse.io{href}"
         )
-
         loc_tag = opening.find("span", attrs={"class": "location"})
         location = loc_tag.get_text(strip=True) if loc_tag else ""
-
         if kw_lower and not any(kw in title.lower() for kw in kw_lower):
             continue
         if not job_url or job_url == "https://boards.greenhouse.io":
             continue
-
         jobs.append(
             _make_job(
                 title=title,
@@ -902,43 +957,102 @@ def _scrape_greenhouse(company_slug: str, keywords: list) -> list:
     return jobs
 
 
-# ── 3. Lever scraper ─────────────────────────────────────────────────────────
-
-
 def _scrape_lever(company_slug: str, keywords: list) -> list:
-    url = f"https://jobs.lever.co/{company_slug}"
+    """
+    Uses the Lever public JSON API which returns createdAt (Unix ms timestamp).
+    Falls back to HTML scraping if the API returns a non-200.
+    """
+    api_url = f"https://api.lever.co/v0/postings/{company_slug}?mode=json&limit=250"
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=12)
+        resp = requests.get(api_url, headers=HEADERS, timeout=12)
+        if resp.status_code == 200:
+            return _parse_lever_json(resp.json(), company_slug, keywords)
+    except Exception:
+        pass
+
+    # HTML fallback
+    html_url = f"https://jobs.lever.co/{company_slug}"
+    try:
+        resp = requests.get(html_url, headers=HEADERS, timeout=12)
         if resp.status_code != 200:
             return []
-        soup = BeautifulSoup(resp.text, "html.parser")
+        return _parse_lever_html(resp.text, company_slug, keywords)
     except Exception:
         return []
 
+
+def _parse_lever_json(postings: list, company_slug: str, keywords: list) -> list:
+    jobs = []
+    kw_lower = [k.lower() for k in keywords]
+    for p in postings:
+        title = str(p.get("text") or "")
+        if kw_lower and not any(kw in title.lower() for kw in kw_lower):
+            continue
+        _lever_id = p.get("id", "")
+        job_url = str(
+            p.get("hostedUrl")
+            or (
+                f"https://jobs.lever.co/{company_slug}/{_lever_id}" if _lever_id else ""
+            )
+        )
+        cats = p.get("categories") or {}
+        location = str(cats.get("location") or "")
+        company = str(
+            p.get("company") or company_slug.replace("-", " ").replace("_", " ").title()
+        )
+        # createdAt is Unix ms timestamp
+        created_ms = p.get("createdAt")
+        posted_at = ""
+        if created_ms:
+            try:
+                posted_at = datetime.fromtimestamp(
+                    int(created_ms) / 1000, tz=timezone.utc
+                ).strftime("%Y-%m-%dT%H:%M:%SZ")
+            except Exception:
+                pass
+        # Lever provides workplaceType and categories.commitment
+        workplace = _normalise_workplace(str(p.get("workplaceType") or ""))
+        if not workplace:
+            workplace = _normalise_workplace(location)
+        job_type = _normalise_job_type(str(cats.get("commitment") or ""))
+        if not job_url:
+            continue
+        jobs.append(
+            _make_job(
+                title=title,
+                company=company,
+                location=location,
+                url=job_url,
+                source="lever",
+                posted_at=posted_at,
+                workplace=workplace,
+                job_type=job_type,
+            )
+        )
+    return jobs
+
+
+def _parse_lever_html(html: str, company_slug: str, keywords: list) -> list:
+    soup = BeautifulSoup(html, "html.parser")
     jobs = []
     kw_lower = [k.lower() for k in keywords]
     company_name = company_slug.replace("-", " ").replace("_", " ").title()
-
     for posting in soup.find_all("div", class_="posting"):
         h5 = posting.find("h5")
         if not h5:
             continue
         title = h5.get_text(strip=True)
-
         a_tag = posting.find("a", class_="posting-btn-submit") or posting.find("a")
         if not a_tag:
             continue
         href = str(a_tag.get("href") or "")
         job_url = href if href.startswith("http") else f"https://jobs.lever.co{href}"
-
         loc_tag = posting.find("span", class_="location")
         location = loc_tag.get_text(strip=True) if loc_tag else ""
-
         if kw_lower and not any(kw in title.lower() for kw in kw_lower):
             continue
         if not job_url:
             continue
-
         jobs.append(
             _make_job(
                 title=title,
@@ -951,12 +1065,10 @@ def _scrape_lever(company_slug: str, keywords: list) -> list:
     return jobs
 
 
-# ── 4. Ashby scraper ─────────────────────────────────────────────────────────
-
-
 def _scrape_ashby(company_slug: str, keywords: list) -> list:
-    api_url = f"https://api.ashbyhq.com/posting-api/job-board/{company_slug}"
+    data: dict = {}
     try:
+        api_url = f"https://api.ashbyhq.com/posting-api/job-board/{company_slug}"
         resp = requests.get(api_url, headers=HEADERS, timeout=12)
         if resp.status_code != 200:
             return []
@@ -968,16 +1080,33 @@ def _scrape_ashby(company_slug: str, keywords: list) -> list:
     kw_lower = [k.lower() for k in keywords]
     company_name = company_slug.replace("-", " ").replace("_", " ").title()
 
-    for posting in data.get("jobPostings", []):
+    # The API returns either "jobs" or "jobPostings" depending on the endpoint
+    postings = data.get("jobs") or data.get("jobPostings") or []
+
+    for posting in postings:
         title = str(posting.get("title") or "")
         posting_id = str(posting.get("id") or "")
+        _raw_url = posting.get("jobUrl") or posting.get("applyUrl") or ""
         job_url = (
-            str(posting.get("jobUrl") or "")
-            or f"https://jobs.ashbyhq.com/{company_slug}/{posting_id}"
+            str(_raw_url)
+            if _raw_url
+            else f"https://jobs.ashbyhq.com/{company_slug}/{posting_id}"
         )
+
+        is_remote = bool(posting.get("isRemote"))
         location = str(
-            posting.get("locationName") or ("Remote" if posting.get("isRemote") else "")
+            posting.get("locationName")
+            or posting.get("location")
+            or ("Remote" if is_remote else "")
         )
+        workplace = (
+            "remote"
+            if is_remote
+            else _normalise_workplace(str(posting.get("workplaceType") or location))
+        )
+        job_type = _normalise_job_type(str(posting.get("employmentType") or ""))
+        posted_at = str(posting.get("publishedAt") or "")
+
         desc_html = str(posting.get("descriptionHtml") or "")
         desc = (
             BeautifulSoup(desc_html, "html.parser").get_text(separator="\n")
@@ -998,30 +1127,58 @@ def _scrape_ashby(company_slug: str, keywords: list) -> list:
                 url=job_url,
                 description=desc[:3000],
                 source="ashby",
+                workplace=workplace,
+                job_type=job_type,
+                posted_at=posted_at,
             )
         )
     return jobs
 
 
-# ── 5. Parallel multi-company scraper ────────────────────────────────────────
+# Per-source wall-clock budget. Search across all 3 sources must finish
+# well within the 115s Next.js route handler timeout.
+_SOURCE_TIMEOUT = 30  # seconds per source (Greenhouse / Lever / Ashby each get 30s)
+_MAX_WORKERS = 50  # concurrent threads — higher = faster fan-out
 
 
 def _scrape_parallel(
-    slugs: list, keywords: list, scrape_fn, max_workers: int = 20
+    slugs: list,
+    keywords: list,
+    scrape_fn,
+    max_workers: int = _MAX_WORKERS,
+    deadline_seconds: int = _SOURCE_TIMEOUT,
 ) -> list:
-    """Scrape a list of company slugs in parallel."""
-    results = []
+    """
+    Scrape company slugs in parallel with a hard wall-clock deadline.
+    Any futures still running when the deadline is reached are cancelled
+    so the overall search never blocks longer than deadline_seconds.
+    """
+    results: list = []
+    deadline = time.monotonic() + deadline_seconds
+
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(scrape_fn, slug, keywords): slug for slug in slugs}
-        for future in as_completed(futures):
-            try:
-                results.extend(future.result())
-            except Exception:
-                pass
+        remaining = set(futures.keys())
+
+        while remaining:
+            time_left = deadline - time.monotonic()
+            if time_left <= 0:
+                # Cancel whatever is still pending — already-running threads
+                # finish naturally but we stop waiting for them
+                for f in remaining:
+                    f.cancel()
+                break
+
+            done, remaining = wait(
+                remaining, timeout=min(time_left, 2), return_when=FIRST_COMPLETED
+            )
+            for future in done:
+                try:
+                    results.extend(future.result())
+                except Exception:
+                    pass
+
     return results
-
-
-# ── 6. Fetch full job description ─────────────────────────────────────────────
 
 
 def fetch_job_description(url: str) -> str:
@@ -1060,52 +1217,63 @@ def fetch_job_description(url: str) -> str:
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
-    for tag in soup.find_all(NOISE_TAGS):
-        tag.decompose()
+    # Platform-specific selectors tried in priority order BEFORE any DOM removal
+    # so that nested containers aren't accidentally destroyed
+    CSS_SELECTORS = [
+        # Lever
+        "div.content",
+        "div.posting-content",
+        "div.posting-description",
+        # Greenhouse
+        "div#content",
+        "div#jobDescriptionText",
+        # Ashby
+        "div.ashby-job-posting-brief-description",
+        # Generic
+        "div.job-description",
+        "div.jobDescription",
+        "div[class*='description']",
+        "article",
+        "main",
+        "section",
+    ]
 
-    for tag in soup.find_all(True):
-        classes = " ".join(tag.get("class") or [])
-        tag_id = tag.get("id") or ""
-        combined = f"{classes} {tag_id}".lower()
-        if any(p in combined for p in NOISE_CLASSES):
-            tag.decompose()
-
-    # Try platform-specific content containers first
     text = ""
-    for sel in [
-        {"id": "content"},
-        {"id": "jobDescriptionText"},
-        {"class_": "posting-content"},
-        {"class_": "job-description"},
-        {"class_": "jobDescription"},
-        {"class_": "content"},
-    ]:
-        el = soup.find(True, **sel)
+    for sel in CSS_SELECTORS:
+        try:
+            el = soup.select_one(sel)
+        except Exception:
+            continue
         if el:
             candidate = el.get_text(separator="\n", strip=True)
             if len(candidate) > 200:
                 text = candidate
                 break
 
+    # Fallback: remove noise then find the largest div
     if len(text) < 200:
-        for tag_name in ("article", "main", "section"):
-            el = soup.find(tag_name)
-            if el:
-                text = el.get_text(separator="\n", strip=True)
-                if len(text) > 200:
-                    break
+        try:
+            for tag in list(soup.find_all(list(NOISE_TAGS))):
+                tag.decompose()
+            all_divs = soup.find_all("div")
+            if all_divs:
+                best = max(all_divs, key=lambda t: len(t.get_text()))
+                candidate = best.get_text(separator="\n", strip=True)
+                if len(candidate) > len(text):
+                    text = candidate
+        except Exception:
+            pass
 
     if len(text) < 200:
-        all_divs = soup.find_all("div")
-        if all_divs:
-            best = max(all_divs, key=lambda t: len(t.get_text()))
-            text = best.get_text(separator="\n", strip=True)
+        try:
+            body = soup.find("body")
+            if body:
+                text = body.get_text(separator="\n", strip=True)
+        except Exception:
+            pass
 
     text = re.sub(r"\n{3,}", "\n\n", text)
     return "\n".join(ln.strip() for ln in text.splitlines() if ln.strip())[:12000]
-
-
-# ── 7. Main search entry point ────────────────────────────────────────────────
 
 
 def search_jobs(
@@ -1126,13 +1294,7 @@ def search_jobs(
     Company lists are fetched from Simplify (disk-cached 24h) + curated fallback.
     Scraping runs in parallel — typically 500-1000 companies in ~20-30 seconds.
     """
-    # Expand keywords: "ML Engineer" → ["ML Engineer", "ml", "engineer"]
     kw_list = [k.strip() for k in re.split(r"[,;|]", keywords) if k.strip()]
-    expanded: list = []
-    for kw in kw_list:
-        expanded.append(kw)
-        expanded.extend(kw.lower().split())
-    kw_list = list(dict.fromkeys(expanded))
 
     companies = get_company_lists(custom_greenhouse, custom_lever, custom_ashby)
 
@@ -1163,4 +1325,93 @@ def search_jobs(
             seen.add(url)
             unique.append(job)
 
+    # Location filter — applied after scraping since ATS boards don't support location params
+    if location:
+        unique = _filter_by_location(unique, location)
+
     return unique
+
+
+def _filter_by_location(jobs: list, location: str) -> list:
+    """
+    Filter jobs by location string. Case-insensitive substring match against
+    job.location. Special handling for common location values from the UI.
+    Remote jobs are always included when location is 'Remote', and also
+    included alongside any other location since remote workers can be anywhere.
+    """
+    loc = location.strip().lower()
+
+    # Mapping from UI values to keywords to match in job.location
+    LOC_KEYWORDS: dict[str, list[str]] = {
+        "united states": [
+            ", us",
+            "usa",
+            "united states",
+            "u.s.",
+            "america",
+            "new york",
+            "san francisco",
+            "seattle",
+            "austin",
+            "chicago",
+            "boston",
+            "los angeles",
+            "denver",
+            "atlanta",
+            "miami",
+            "remote",
+        ],
+        "europe": [
+            "europe",
+            "uk",
+            "london",
+            "berlin",
+            "paris",
+            "amsterdam",
+            "dublin",
+            "madrid",
+            "lisbon",
+            "stockholm",
+            "copenhagen",
+            "zurich",
+            "remote",
+        ],
+        "india": [
+            "india",
+            "bangalore",
+            "bengaluru",
+            "mumbai",
+            "delhi",
+            "hyderabad",
+            "pune",
+            "chennai",
+            "remote",
+        ],
+        "remote": [
+            "remote",
+            "anywhere",
+            "distributed",
+            "work from home",
+            "wfh",
+            "worldwide",
+            "global",
+        ],
+    }
+
+    keywords = LOC_KEYWORDS.get(loc)
+
+    if not keywords:
+        # Fallback: treat the raw location string as a keyword
+        keywords = [loc, "remote"]
+
+    result = []
+    for job in jobs:
+        job_loc = (job.get("location") or "").lower()
+        # Empty location = unknown, include it rather than drop it
+        if not job_loc:
+            result.append(job)
+            continue
+        if any(kw in job_loc for kw in keywords):
+            result.append(job)
+
+    return result

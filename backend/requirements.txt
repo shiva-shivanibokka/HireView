@@ -1,29 +1,13 @@
-# AutoApply Job Agent — backend dependencies
+# HireView — backend dependencies
 
 # API framework
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 python-multipart>=0.0.9
 
-# LLM
-anthropic>=0.93.0
-
-# Resume generation (ResumeForge deps)
-python-docx>=1.2.0
-docx2pdf>=0.1.8
-pymupdf>=1.23.0
-pdfminer.six>=20221105
-
 # Scraping
 requests>=2.32.0
 beautifulsoup4>=4.13.0
-
-# Semantic matching
-sentence-transformers>=3.0.0
-numpy>=1.24.0
-
-# Browser automation
-playwright>=1.44.0
 
 # Env
 python-dotenv>=1.0.0

@@ -2,7 +2,7 @@ import type { Metadata } from "next"
 import "./globals.css"
 
 export const metadata: Metadata = {
-  title: "AutoApply Job Agent",
+  title: "HireView",
   description: "Find jobs, generate tailored resumes, and autofill applications.",
 }
 
