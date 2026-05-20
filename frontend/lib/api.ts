@@ -28,6 +28,7 @@ export async function searchJobs(params: {
   useGreenhouse: boolean
   useLever:      boolean
   useAshby:      boolean
+  companies?:    CompanySuggestion[]
 }): Promise<{ jobs: Job[]; total: number; message?: string }> {
   const fd = new FormData()
   fd.append("keywords",       params.keywords)
@@ -37,11 +38,43 @@ export async function searchJobs(params: {
   fd.append("use_greenhouse", String(params.useGreenhouse))
   fd.append("use_lever",      String(params.useLever))
   fd.append("use_ashby",      String(params.useAshby))
+  if (params.companies && params.companies.length > 0)
+    fd.append("companies", JSON.stringify(params.companies))
   return request("/api/search", { method: "POST", body: fd })
 }
 
 export async function fetchJobDescription(jobId: string): Promise<{ description: string }> {
   return request(`/api/jobs/${jobId}/fetch-description`, { method: "POST" })
+}
+
+export interface CompanySuggestion {
+  name:     string
+  platform: string
+  slug:     string
+}
+
+export async function fetchCompanySuggestions(q: string): Promise<CompanySuggestion[]> {
+  if (!q.trim()) return []
+  try {
+    const res = await fetch(`/api/companies?q=${encodeURIComponent(q)}&limit=10`)
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.companies ?? []
+  } catch {
+    return []
+  }
+}
+
+export async function fetchSuggestions(q: string): Promise<string[]> {
+  if (!q.trim()) return []
+  try {
+    const res = await fetch(`/api/suggestions?q=${encodeURIComponent(q)}&limit=8`)
+    if (!res.ok) return []
+    const data = await res.json()
+    return data.suggestions ?? []
+  } catch {
+    return []
+  }
 }
 
 export async function listJobs(status?: string): Promise<{ jobs: Job[] }> {

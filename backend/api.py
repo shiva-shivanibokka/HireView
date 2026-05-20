@@ -15,14 +15,125 @@ Run:
 """
 
 import re
+import json as _json
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from scraper import search_jobs, fetch_job_description
-from job_store import upsert_job, get_jobs, get_job, update_job_status
+from scraper import search_jobs, fetch_job_description, get_company_name_map
+from job_store import upsert_job, get_jobs, get_job, update_job_status, suggest_titles
+
+CURATED_TITLES = [
+    "Machine Learning Engineer",
+    "ML Engineer",
+    "Senior ML Engineer",
+    "Staff Machine Learning Engineer",
+    "Principal ML Engineer",
+    "ML Research Scientist",
+    "Research Scientist",
+    "Applied Scientist",
+    "AI Engineer",
+    "AI Research Engineer",
+    "AI/ML Engineer",
+    "Data Scientist",
+    "Senior Data Scientist",
+    "Staff Data Scientist",
+    "Data Engineer",
+    "Senior Data Engineer",
+    "Analytics Engineer",
+    "Data Analyst",
+    "Business Intelligence Analyst",
+    "BI Engineer",
+    "Software Engineer",
+    "Senior Software Engineer",
+    "Staff Software Engineer",
+    "Principal Software Engineer",
+    "Software Engineer II",
+    "Software Engineer III",
+    "Backend Engineer",
+    "Frontend Engineer",
+    "Full Stack Engineer",
+    "Full Stack Developer",
+    "Backend Developer",
+    "Frontend Developer",
+    "Platform Engineer",
+    "Infrastructure Engineer",
+    "Site Reliability Engineer",
+    "DevOps Engineer",
+    "Cloud Engineer",
+    "Solutions Engineer",
+    "ML Platform Engineer",
+    "ML Infrastructure Engineer",
+    "LLM Engineer",
+    "Generative AI Engineer",
+    "AI Product Engineer",
+    "Prompt Engineer",
+    "NLP Engineer",
+    "Computer Vision Engineer",
+    "Robotics Engineer",
+    "Autonomous Systems Engineer",
+    "Deep Learning Engineer",
+    "Reinforcement Learning Engineer",
+    "Quantitative Researcher",
+    "Quantitative Analyst",
+    "Quant Developer",
+    "Product Manager",
+    "Senior Product Manager",
+    "Technical Product Manager",
+    "Product Designer",
+    "UX Designer",
+    "UI Designer",
+    "UX Researcher",
+    "Engineering Manager",
+    "Director of Engineering",
+    "VP of Engineering",
+    "Head of Data Science",
+    "Head of AI",
+    "Head of Machine Learning",
+    "Research Engineer",
+    "Applied Research Engineer",
+    "Research Intern",
+    "Software Engineer Intern",
+    "Data Science Intern",
+    "ML Intern",
+    "Data Engineering Intern",
+    "Product Intern",
+    "Security Engineer",
+    "Security Analyst",
+    "Application Security Engineer",
+    "Embedded Systems Engineer",
+    "Firmware Engineer",
+    "Systems Engineer",
+    "iOS Engineer",
+    "Android Engineer",
+    "Mobile Engineer",
+    "New Grad Software Engineer",
+    "New Grad Data Scientist",
+    "New Grad ML Engineer",
+    "Associate Software Engineer",
+    "Associate Data Scientist",
+    "Technical Program Manager",
+    "Program Manager",
+    "Project Manager",
+    "Solutions Architect",
+    "Enterprise Architect",
+    "Technical Architect",
+    "Marketing Manager",
+    "Growth Engineer",
+    "Growth Analyst",
+    "Financial Analyst",
+    "Business Analyst",
+    "Operations Analyst",
+    "Recruiter",
+    "Technical Recruiter",
+    "HR Business Partner",
+    "Content Writer",
+    "Technical Writer",
+    "Developer Advocate",
+]
 
 load_dotenv(override=True)
 
@@ -59,21 +170,72 @@ def _parse_keywords(raw: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+@app.get("/api/companies")
+async def companies(q: str = "", limit: int = 10):
+    """
+    Return company name suggestions matching the query.
+    Each result includes the display name, ATS platform, and slug.
+    """
+    if not q.strip():
+        return {"companies": []}
+    q_lower = q.lower()
+    name_map = get_company_name_map()
+    matches = [
+        {"name": name, "platform": info["platform"], "slug": info["slug"]}
+        for name, info in name_map.items()
+        if q_lower in name.lower()
+    ]
+    matches.sort(key=lambda c: (not c["name"].lower().startswith(q_lower), c["name"]))
+    return {"companies": matches[:limit]}
+
+
+@app.get("/api/suggestions")
+async def suggestions(q: str = "", limit: int = 8):
+    """
+    Return job title suggestions matching the query.
+    Merges curated titles with titles seen in past searches (from DB).
+    """
+    if not q.strip():
+        return {"suggestions": []}
+    q_lower = q.lower()
+    curated = [t for t in CURATED_TITLES if q_lower in t.lower()][:limit]
+    from_db = suggest_titles(q, limit)
+    combined = list({t: None for t in curated + from_db}.keys())[:limit]
+    return {"suggestions": combined}
+
+
 @app.post("/api/search")
 async def search(
-    keywords: str = Form(...),
+    keywords: str = Form(""),
     location: str = Form(""),
     adzuna_app_id: str = Form(""),
     adzuna_app_key: str = Form(""),
     use_greenhouse: str = Form("true"),
     use_lever: str = Form("true"),
     use_ashby: str = Form("true"),
+    companies: str = Form(""),  # JSON array of {name, platform, slug}
 ):
     """
     Scrape all enabled sources, score by keyword relevance, persist to SQLite,
     and return all results sorted newest first.
     """
     kw_list = _parse_keywords(keywords)
+
+    target_companies: list | None = None
+    if companies.strip():
+        try:
+            parsed = _json.loads(companies)
+            if isinstance(parsed, list) and parsed:
+                target_companies = parsed
+        except Exception:
+            pass
+
+    if not keywords.strip() and not target_companies:
+        return {
+            "jobs": [],
+            "total": 0,
+            "message": "Enter at least one job title or company.",
+        }
 
     raw_jobs = search_jobs(
         keywords=keywords,
@@ -83,6 +245,7 @@ async def search(
         use_greenhouse=(use_greenhouse.lower() == "true"),
         use_lever=(use_lever.lower() == "true"),
         use_ashby=(use_ashby.lower() == "true"),
+        target_companies=target_companies,
     )
 
     if not raw_jobs:
@@ -96,11 +259,16 @@ async def search(
         job["match_score"] = _keyword_score(job, kw_list)
         upsert_job(job)
 
-    # Default sort: newest first by actual posting date, fall back to scraped_at
-    raw_jobs.sort(
-        key=lambda j: j.get("posted_at") or j.get("scraped_at", ""),
-        reverse=True,
-    )
+    def _sort_key(j: dict) -> str:
+        s = j.get("posted_at") or j.get("scraped_at", "")
+        if not s:
+            return ""
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00")).isoformat()
+        except Exception:
+            return s
+
+    raw_jobs.sort(key=_sort_key, reverse=True)
 
     return {"jobs": raw_jobs, "total": len(raw_jobs)}
 

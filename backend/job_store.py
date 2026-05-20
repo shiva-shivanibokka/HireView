@@ -5,23 +5,35 @@ SQLite persistence layer for HireView.
 
 import sqlite3
 import json
-from datetime import datetime
+from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
 DB_PATH = Path(__file__).parent / "data" / "jobs.db"
 
 
-def _conn() -> sqlite3.Connection:
+@contextmanager
+def _conn():
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(DB_PATH), check_same_thread=False)
     con.row_factory = sqlite3.Row
-    return con
+    try:
+        yield con
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def init_db():
-    con = _conn()
-    try:
+    with _conn() as con:
         con.execute("""
         CREATE TABLE IF NOT EXISTS jobs (
             id              TEXT PRIMARY KEY,
@@ -41,9 +53,6 @@ def init_db():
             status          TEXT DEFAULT 'new'
         )
         """)
-        con.commit()
-
-        # Add new columns to existing databases without breaking the transaction
         existing = {row[1] for row in con.execute("PRAGMA table_info(jobs)")}
         for col, dflt in [
             ("posted_at", "TEXT DEFAULT ''"),
@@ -51,17 +60,13 @@ def init_db():
         ]:
             if col not in existing:
                 con.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dflt}")
-        con.commit()
-    finally:
-        con.close()
 
 
 def upsert_job(job: dict):
     """
     Insert or update a job row.
-    - status is preserved from the existing row on re-scrape
-    - scraped_at is preserved from the existing row so it reflects first-seen time
-    - All other fields are updated to the latest scraped values
+    - status is preserved on re-scrape
+    - scraped_at is preserved (reflects first-seen time, never overwritten)
     """
     with _conn() as con:
         existing = con.execute(
@@ -115,7 +120,7 @@ def upsert_job(job: dict):
                     json.dumps(job.get("required_skills", [])),
                     json.dumps(job.get("keywords", [])),
                     job.get("match_score", 0),
-                    job.get("scraped_at", datetime.utcnow().isoformat()),
+                    job.get("scraped_at", _now()),
                     job.get("posted_at", ""),
                 ),
             )
@@ -151,6 +156,17 @@ def get_job(job_id: str) -> Optional[dict]:
 def update_job_status(job_id: str, status: str):
     with _conn() as con:
         con.execute("UPDATE jobs SET status=? WHERE id=?", (status, job_id))
+
+
+def suggest_titles(query: str, limit: int = 10) -> list[str]:
+    if not query.strip():
+        return []
+    with _conn() as con:
+        rows = con.execute(
+            "SELECT DISTINCT title FROM jobs WHERE title LIKE ? ORDER BY title LIMIT ?",
+            (f"%{query}%", limit),
+        ).fetchall()
+    return [r["title"] for r in rows]
 
 
 def _row_to_job(row: sqlite3.Row) -> dict:

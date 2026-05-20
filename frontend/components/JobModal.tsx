@@ -90,7 +90,7 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
   // hasFetched ref prevents the stale-closure re-fetch loop that would occur
   // if desc were in the dependency array.
   const fetchDesc = useCallback(async (force = false) => {
-    if (!force && hasFetched.current && desc.trim().length > 100) return
+    if (!force && hasFetched.current) return
     hasFetched.current = true
     setLoading(true)
     try {
@@ -104,11 +104,12 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
   }, [job.id]) // desc intentionally omitted — tracked via hasFetched ref
 
   useEffect(() => {
+    hasFetched.current = false
     fetchDesc()
     const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [job.id, onClose]) // job.id instead of fetchDesc breaks the dep chain
+  }, [job.id, onClose])
 
   async function handleSave() {
     const next = saved ? "new" : "saved"

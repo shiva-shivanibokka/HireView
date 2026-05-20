@@ -150,23 +150,18 @@ function JobCard({ job, accent, onSelect, onDismiss }: {
           </div>
         )}
 
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          paddingTop: 10, borderTop: "1px solid var(--border)",
-        }}>
-          <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
-            {job.workplace  && <TypeBadge label={job.workplace}  />}
-            {job.job_type   && <TypeBadge label={job.job_type}   />}
-            {!job.workplace && !job.job_type && (
-              <span style={{ fontSize: 11, color: "var(--muted)" }}>
-                {job.posted_at ? `Posted ${timeAgo(job.posted_at)}` : ""}
-              </span>
-            )}
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            paddingTop: 10, borderTop: "1px solid var(--border)",
+          }}>
+            <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap" }}>
+              {job.workplace && <TypeBadge label={job.workplace} />}
+              {job.job_type  && <TypeBadge label={job.job_type}  />}
+            </div>
+            <span style={{ fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }}>
+              {job.posted_at ? `Posted ${timeAgo(job.posted_at)}` : ""}
+            </span>
           </div>
-          <span style={{ fontSize: 11, color: "var(--muted)", whiteSpace: "nowrap" }}>
-            {job.posted_at ? timeAgo(job.posted_at) : ""}
-          </span>
-        </div>
       </div>
     </div>
   )

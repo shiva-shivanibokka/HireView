@@ -129,7 +129,10 @@ export default function HireView() {
       if (sort === "newest") {
         const da = a.posted_at || a.scraped_at
         const db = b.posted_at || b.scraped_at
-        return new Date(db || 0).getTime() - new Date(da || 0).getTime()
+        if (!da && !db) return 0
+        if (!da) return 1
+        if (!db) return -1
+        return new Date(db).getTime() - new Date(da).getTime()
       }
       return b.match_score - a.match_score
     })

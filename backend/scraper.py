@@ -583,7 +583,6 @@ _cache_lock = threading.Lock()
 
 
 def _load_disk_cache() -> dict | None:
-    """Load company list from disk cache if it exists and is fresh."""
     try:
         if not CACHE_FILE.exists():
             return None
@@ -595,13 +594,12 @@ def _load_disk_cache() -> dict | None:
             fetched_at = fetched_at.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - fetched_at > timedelta(hours=CACHE_TTL_HOURS):
             return None
-        return data.get("companies")
+        return data
     except Exception:
         return None
 
 
-def _save_disk_cache(companies: dict):
-    """Persist company list to disk with a timestamp."""
+def _save_disk_cache(companies: dict, name_map: dict):
     try:
         CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         CACHE_FILE.write_text(
@@ -609,6 +607,7 @@ def _save_disk_cache(companies: dict):
                 {
                     "fetched_at": datetime.now(timezone.utc).isoformat(),
                     "companies": companies,
+                    "name_map": name_map,
                 },
                 indent=2,
             ),
@@ -616,6 +615,9 @@ def _save_disk_cache(companies: dict):
         )
     except Exception:
         pass
+
+
+_INVALID_SLUGS = {"embed", "job_board", "jobs", "postings", "api", "apply"}
 
 
 def _fetch_simplify_companies() -> dict:
@@ -629,12 +631,13 @@ def _fetch_simplify_companies() -> dict:
       3. Save result to disk for next run
     """
     with _cache_lock:
-        # Try disk cache first
         cached = _load_disk_cache()
         if cached:
-            return cached
+            return cached.get("companies", {})
 
         result: dict = {"greenhouse": [], "lever": [], "ashby": []}
+        # name_map: company display name → {"platform": ..., "slug": ...}
+        name_map: dict = {}
 
         for url in SIMPLIFY_URLS:
             try:
@@ -647,17 +650,9 @@ def _fetch_simplify_companies() -> dict:
 
                 for item in listings:
                     link = str(item.get("url", "") or item.get("link", "") or "")
+                    company_name = str(item.get("company_name", "") or "").strip()
                     if not link:
                         continue
-
-                    _INVALID_SLUGS = {
-                        "embed",
-                        "job_board",
-                        "jobs",
-                        "postings",
-                        "api",
-                        "apply",
-                    }
 
                     gh = re.search(r"boards\.greenhouse\.io/([^/?#\s]+)", link)
                     if gh:
@@ -668,6 +663,11 @@ def _fetch_simplify_companies() -> dict:
                             and slug not in result["greenhouse"]
                         ):
                             result["greenhouse"].append(slug)
+                            if company_name:
+                                name_map[company_name] = {
+                                    "platform": "greenhouse",
+                                    "slug": slug,
+                                }
                         continue
 
                     lv = re.search(r"jobs\.lever\.co/([^/?#\s]+)", link)
@@ -679,6 +679,11 @@ def _fetch_simplify_companies() -> dict:
                             and slug not in result["lever"]
                         ):
                             result["lever"].append(slug)
+                            if company_name:
+                                name_map[company_name] = {
+                                    "platform": "lever",
+                                    "slug": slug,
+                                }
                         continue
 
                     ab = re.search(r"jobs\.ashbyhq\.com/([^/?#\s]+)", link)
@@ -690,16 +695,52 @@ def _fetch_simplify_companies() -> dict:
                             and slug not in result["ashby"]
                         ):
                             result["ashby"].append(slug)
+                            if company_name:
+                                name_map[company_name] = {
+                                    "platform": "ashby",
+                                    "slug": slug,
+                                }
                         continue
 
             except Exception:
                 continue
 
-        # Save to disk so next app start doesn't re-fetch for 24h
         if any(result.values()):
-            _save_disk_cache(result)
+            _save_disk_cache(result, name_map)
 
         return result
+
+
+def get_company_name_map() -> dict:
+    """
+    Return a dict mapping company display name → {platform, slug}.
+    Built from the Simplify JSON + fallback lists.
+    Used for company autocomplete and targeted company search.
+    """
+    with _cache_lock:
+        cached = _load_disk_cache()
+        if cached and cached.get("name_map"):
+            return cached["name_map"]
+
+    # Cache miss or no name_map yet — trigger a fresh fetch which will populate it
+    _fetch_simplify_companies()
+    with _cache_lock:
+        cached = _load_disk_cache()
+        if cached and cached.get("name_map"):
+            return cached["name_map"]
+
+    # Final fallback: build from slug lists only (no display names)
+    name_map: dict = {}
+    for slug in FALLBACK_GREENHOUSE:
+        name = slug.replace("-", " ").replace("_", " ").title()
+        name_map[name] = {"platform": "greenhouse", "slug": slug}
+    for slug in FALLBACK_LEVER:
+        name = slug.replace("-", " ").replace("_", " ").title()
+        name_map[name] = {"platform": "lever", "slug": slug}
+    for slug in FALLBACK_ASHBY:
+        name = slug.replace("-", " ").replace("_", " ").title()
+        name_map[name] = {"platform": "ashby", "slug": slug}
+    return name_map
 
 
 def get_company_lists(
@@ -1006,7 +1047,7 @@ def _parse_lever_json(postings: list, company_slug: str, keywords: list) -> list
         if created_ms:
             try:
                 posted_at = datetime.fromtimestamp(
-                    int(created_ms) / 1000, tz=timezone.utc
+                    int(float(created_ms)) / 1000, tz=timezone.utc
                 ).strftime("%Y-%m-%dT%H:%M:%SZ")
             except Exception:
                 pass
@@ -1287,34 +1328,54 @@ def search_jobs(
     custom_greenhouse: list | None = None,
     custom_lever: list | None = None,
     custom_ashby: list | None = None,
+    target_companies: list | None = None,
 ) -> list:
     """
     Run all enabled scrapers and return deduplicated, normalised job list.
 
-    Company lists are fetched from Simplify (disk-cached 24h) + curated fallback.
-    Scraping runs in parallel — typically 500-1000 companies in ~20-30 seconds.
+    If target_companies is provided (list of {platform, slug} dicts), only those
+    specific companies are scraped — the full fan-out is skipped. This makes
+    company-specific searches complete in 2–5 seconds instead of 20–30.
     """
     kw_list = [k.strip() for k in re.split(r"[,;|]", keywords) if k.strip()]
 
-    companies = get_company_lists(custom_greenhouse, custom_lever, custom_ashby)
-
     all_jobs: list = []
 
-    if adzuna_app_id and adzuna_app_key:
-        all_jobs.extend(
-            search_adzuna(keywords, location, 50, adzuna_app_id, adzuna_app_key)
-        )
+    if target_companies:
+        gh_slugs = [
+            c["slug"] for c in target_companies if c.get("platform") == "greenhouse"
+        ]
+        lv_slugs = [c["slug"] for c in target_companies if c.get("platform") == "lever"]
+        ab_slugs = [c["slug"] for c in target_companies if c.get("platform") == "ashby"]
 
-    if use_greenhouse and companies["greenhouse"]:
-        all_jobs.extend(
-            _scrape_parallel(companies["greenhouse"], kw_list, _scrape_greenhouse)
-        )
+        if gh_slugs:
+            all_jobs.extend(_scrape_parallel(gh_slugs, kw_list, _scrape_greenhouse))
+        if lv_slugs:
+            all_jobs.extend(_scrape_parallel(lv_slugs, kw_list, _scrape_lever))
+        if ab_slugs:
+            all_jobs.extend(_scrape_parallel(ab_slugs, kw_list, _scrape_ashby))
+    else:
+        companies = get_company_lists(custom_greenhouse, custom_lever, custom_ashby)
 
-    if use_lever and companies["lever"]:
-        all_jobs.extend(_scrape_parallel(companies["lever"], kw_list, _scrape_lever))
+        if adzuna_app_id and adzuna_app_key:
+            all_jobs.extend(
+                search_adzuna(keywords, location, 50, adzuna_app_id, adzuna_app_key)
+            )
 
-    if use_ashby and companies["ashby"]:
-        all_jobs.extend(_scrape_parallel(companies["ashby"], kw_list, _scrape_ashby))
+        if use_greenhouse and companies["greenhouse"]:
+            all_jobs.extend(
+                _scrape_parallel(companies["greenhouse"], kw_list, _scrape_greenhouse)
+            )
+
+        if use_lever and companies["lever"]:
+            all_jobs.extend(
+                _scrape_parallel(companies["lever"], kw_list, _scrape_lever)
+            )
+
+        if use_ashby and companies["ashby"]:
+            all_jobs.extend(
+                _scrape_parallel(companies["ashby"], kw_list, _scrape_ashby)
+            )
 
     # Deduplicate by URL
     seen: set = set()
