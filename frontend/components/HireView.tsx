@@ -1,11 +1,13 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect, type ReactNode } from "react"
 import type { Job } from "@/lib/types"
+import { listJobs } from "@/lib/api"
 import SearchBar from "./SearchBar"
 import JobGrid from "./JobGrid"
 import JobModal from "./JobModal"
-import { BriefcaseIcon } from "lucide-react"
+import PipelineBoard from "./PipelineBoard"
+import { BriefcaseIcon, SearchIcon, LayoutListIcon } from "lucide-react"
 
 export type ExperienceLevel = "any" | "intern" | "newgrad" | "mid" | "senior" | "staff"
 export type PostedWithin    = "any" | "7" | "14" | "30"
@@ -109,14 +111,41 @@ export default function HireView() {
   const [within, setWithin]     = useState<PostedWithin>("any")
   const [jobType, setJobType]   = useState<JobTypeFilter>("any")
   const [searched, setSearched] = useState(false)
+  const [view, setView]         = useState<"search" | "pipeline">("search")
+  const [pipeline, setPipeline] = useState<Job[]>([])
+  const [pipeLoading, setPipeLoading] = useState(false)
 
   const handleJobsFound = useCallback((found: Job[]) => {
     setJobs(found)
     setSearched(true)
   }, [])
 
+  const loadPipeline = useCallback(async () => {
+    setPipeLoading(true)
+    try {
+      const { jobs } = await listJobs("tracked")
+      setPipeline(jobs)
+    } catch {
+      // leave whatever is there; error surfaces as empty/stale
+    } finally {
+      setPipeLoading(false)
+    }
+  }, [])
+
+  // Refresh the pipeline from the DB each time the user opens that view.
+  useEffect(() => {
+    if (view === "pipeline") loadPipeline()
+  }, [view, loadPipeline])
+
   const handleStatusChange = useCallback((jobId: string, status: Job["status"]) => {
     setJobs(prev => prev.map(j => j.id === jobId ? { ...j, status } : j))
+    setPipeline(prev => {
+      const tracked = status !== "new" && status !== "dismissed"
+      if (!tracked) return prev.filter(j => j.id !== jobId)
+      return prev.map(j => j.id === jobId ? { ...j, status } : j)
+      // ponytail: a job newly tracked from search view appears on next pipeline
+      // open (loadPipeline re-fetches); no need to splice the full object in here.
+    })
     if (status === "dismissed") setSelected(null)
   }, [])
 
@@ -164,37 +193,58 @@ export default function HireView() {
             HireView
           </span>
         </div>
-        {searched && jobs.length > 0 && (
-          <span style={{
-            marginLeft: "auto", fontSize: 13, color: "var(--muted)",
-            background: "var(--surface2)", padding: "3px 10px",
-            borderRadius: 20, border: "1px solid var(--border)",
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{
+            display: "flex", background: "var(--surface2)",
+            border: "1px solid var(--border)", borderRadius: 10, padding: 3,
           }}>
-            {visible.length} jobs
-          </span>
-        )}
+            <ViewTab active={view === "search"} onClick={() => setView("search")}
+              icon={<SearchIcon size={14} />} label="Search" />
+            <ViewTab active={view === "pipeline"} onClick={() => setView("pipeline")}
+              icon={<LayoutListIcon size={14} />}
+              label={`Pipeline${pipeline.length ? ` (${pipeline.length})` : ""}`} />
+          </div>
+          {view === "search" && searched && jobs.length > 0 && (
+            <span style={{
+              fontSize: 13, color: "var(--muted)",
+              background: "var(--surface2)", padding: "3px 10px",
+              borderRadius: 20, border: "1px solid var(--border)",
+            }}>
+              {visible.length} jobs
+            </span>
+          )}
+        </div>
       </header>
 
-      <div style={{
-        background: "var(--surface)",
-        borderBottom: "1px solid var(--border)",
-        padding: "20px 32px",
-      }}>
-        <SearchBar
-          onJobsFound={handleJobsFound}
-          sort={sort}
-          onSortChange={setSort}
-          exp={exp}
-          onExpChange={setExp}
-          jobType={jobType}
-          onJobTypeChange={setJobType}
-          within={within}
-          onWithinChange={setWithin}
-        />
-      </div>
+      {view === "search" && (
+        <div style={{
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--border)",
+          padding: "20px 32px",
+        }}>
+          <SearchBar
+            onJobsFound={handleJobsFound}
+            sort={sort}
+            onSortChange={setSort}
+            exp={exp}
+            onExpChange={setExp}
+            jobType={jobType}
+            onJobTypeChange={setJobType}
+            within={within}
+            onWithinChange={setWithin}
+          />
+        </div>
+      )}
 
       <div style={{ maxWidth: 1200, margin: "0 auto", padding: "28px 32px" }}>
-        {!searched ? (
+        {view === "pipeline" ? (
+          <PipelineBoard
+            jobs={pipeline}
+            loading={pipeLoading}
+            onSelect={setSelected}
+            onStatusChange={handleStatusChange}
+          />
+        ) : !searched ? (
           <EmptyState />
         ) : visible.length === 0 ? (
           <div style={{ textAlign: "center", color: "var(--muted)", padding: "60px 0", fontSize: 15 }}>
@@ -217,6 +267,27 @@ export default function HireView() {
         />
       )}
     </div>
+  )
+}
+
+function ViewTab({ active, onClick, icon, label }: {
+  active: boolean
+  onClick: () => void
+  icon: ReactNode
+  label: string
+}) {
+  return (
+    <button onClick={onClick} style={{
+      display: "flex", alignItems: "center", gap: 6,
+      padding: "5px 12px", borderRadius: 8, border: "none", cursor: "pointer",
+      background: active ? "var(--surface)" : "transparent",
+      color: active ? "var(--accent)" : "var(--muted)",
+      fontWeight: active ? 700 : 600, fontSize: 13,
+      boxShadow: active ? "0 1px 3px rgba(0,0,0,0.08)" : "none",
+      transition: "all 0.15s",
+    }}>
+      {icon} {label}
+    </button>
   )
 }
 

@@ -167,8 +167,16 @@ def get_jobs(
         if sort == "newest"
         else "match_score DESC"
     )
-    where = "WHERE status=?" if status else ""
-    params: list = [status] if status else []
+    if status == "tracked":
+        # everything in the pipeline (excludes untracked "new" and hidden "dismissed")
+        where = "WHERE status NOT IN ('new','dismissed')"
+        params: list = []
+    elif status:
+        where = "WHERE status=?"
+        params = [status]
+    else:
+        where = ""
+        params = []
     query = f"SELECT * FROM jobs {where} ORDER BY {order}"
     if limit:
         query += " LIMIT ?"
