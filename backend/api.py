@@ -15,16 +15,23 @@ Run:
 """
 
 import re
+import logging
 import json as _json
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from dotenv import load_dotenv
 
+import config
 from scraper import search_jobs, fetch_job_description, get_company_name_map
 from job_store import upsert_job, get_jobs, get_job, update_job_status, suggest_titles
+
+logging.basicConfig(
+    level=config.LOG_LEVEL,
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+)
+log = logging.getLogger("hireview")
 
 CURATED_TITLES = [
     "Machine Learning Engineer",
@@ -135,13 +142,18 @@ CURATED_TITLES = [
     "Developer Advocate",
 ]
 
-load_dotenv(override=True)
+config.validate()  # fail loudly at startup on bad config
+log.info(
+    "HireView starting: data=%s, origins=%s",
+    "turso" if config.USE_TURSO else "local-sqlite",
+    config.FRONTEND_ORIGINS,
+)
 
 app = FastAPI(title="HireView API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=config.FRONTEND_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

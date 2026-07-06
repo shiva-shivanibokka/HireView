@@ -24,6 +24,7 @@ Company lists are NOT hardcoded. They come from:
 import re
 import json
 import time
+import logging
 import hashlib
 import requests
 import threading
@@ -31,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 from bs4 import BeautifulSoup  # type: ignore[import-untyped]
-from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 
 HEADERS = {
     "User-Agent": (
@@ -44,6 +45,25 @@ HEADERS = {
     "Accept-Encoding": "gzip, deflate, br",
     "Connection": "keep-alive",
 }
+
+log = logging.getLogger("hireview.scraper")
+
+
+def _get(url: str, *, timeout: int = 12, **kw):
+    """
+    GET with a timeout that LOGS failures instead of swallowing them silently.
+    Returns the Response, or None on any network error.
+
+    ponytail: no retry — the parallel fan-out + per-source deadline already
+    absorb single flaky boards. Add a urllib3 Retry adapter here if transient
+    5xx/connection errors start measurably thinning results.
+    """
+    try:
+        return requests.get(url, headers=HEADERS, timeout=timeout, **kw)
+    except Exception as e:
+        log.warning("fetch failed [%s]: %s", e.__class__.__name__, url)
+        return None
+
 
 # Disk cache path — persists across app restarts
 CACHE_FILE = Path(__file__).parent / "data" / "company_cache.json"
@@ -641,8 +661,8 @@ def _fetch_simplify_companies() -> dict:
 
         for url in SIMPLIFY_URLS:
             try:
-                resp = requests.get(url, timeout=25, headers=HEADERS)
-                if resp.status_code != 200:
+                resp = _get(url, timeout=25)
+                if resp is None or resp.status_code != 200:
                     continue
                 listings = resp.json()
                 if not isinstance(listings, list):
@@ -881,11 +901,14 @@ def search_adzuna(
     if location and country == "us":
         base += f"&where={quote(location)}"
 
+    resp = _get(base, timeout=15)
+    if resp is None:
+        return []
     try:
-        resp = requests.get(base, timeout=15)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except Exception as e:
+        log.warning("adzuna response parse failed [%s]", e.__class__.__name__)
         return []
 
     return [
@@ -909,22 +932,19 @@ def _scrape_greenhouse(company_slug: str, keywords: list) -> list:
     Falls back to HTML scraping if the API returns a non-200.
     """
     api_url = f"https://boards-api.greenhouse.io/v1/boards/{company_slug}/jobs"
-    try:
-        resp = requests.get(api_url, headers=HEADERS, timeout=12)
-        if resp.status_code == 200:
+    resp = _get(api_url)
+    if resp is not None and resp.status_code == 200:
+        try:
             return _parse_greenhouse_json(resp.json(), company_slug, keywords)
-    except Exception:
-        pass
+        except Exception as e:
+            log.warning("greenhouse json parse failed for %s [%s]", company_slug, e.__class__.__name__)
 
     # HTML fallback
     html_url = f"https://boards.greenhouse.io/{company_slug}/jobs"
-    try:
-        resp = requests.get(html_url, headers=HEADERS, timeout=12)
-        if resp.status_code != 200:
-            return []
-        return _parse_greenhouse_html(resp.text, company_slug, keywords)
-    except Exception:
+    resp = _get(html_url)
+    if resp is None or resp.status_code != 200:
         return []
+    return _parse_greenhouse_html(resp.text, company_slug, keywords)
 
 
 def _parse_greenhouse_json(data: dict, company_slug: str, keywords: list) -> list:
@@ -1004,22 +1024,19 @@ def _scrape_lever(company_slug: str, keywords: list) -> list:
     Falls back to HTML scraping if the API returns a non-200.
     """
     api_url = f"https://api.lever.co/v0/postings/{company_slug}?mode=json&limit=250"
-    try:
-        resp = requests.get(api_url, headers=HEADERS, timeout=12)
-        if resp.status_code == 200:
+    resp = _get(api_url)
+    if resp is not None and resp.status_code == 200:
+        try:
             return _parse_lever_json(resp.json(), company_slug, keywords)
-    except Exception:
-        pass
+        except Exception as e:
+            log.warning("lever json parse failed for %s [%s]", company_slug, e.__class__.__name__)
 
     # HTML fallback
     html_url = f"https://jobs.lever.co/{company_slug}"
-    try:
-        resp = requests.get(html_url, headers=HEADERS, timeout=12)
-        if resp.status_code != 200:
-            return []
-        return _parse_lever_html(resp.text, company_slug, keywords)
-    except Exception:
+    resp = _get(html_url)
+    if resp is None or resp.status_code != 200:
         return []
+    return _parse_lever_html(resp.text, company_slug, keywords)
 
 
 def _parse_lever_json(postings: list, company_slug: str, keywords: list) -> list:
@@ -1107,14 +1124,14 @@ def _parse_lever_html(html: str, company_slug: str, keywords: list) -> list:
 
 
 def _scrape_ashby(company_slug: str, keywords: list) -> list:
-    data: dict = {}
+    api_url = f"https://api.ashbyhq.com/posting-api/job-board/{company_slug}"
+    resp = _get(api_url)
+    if resp is None or resp.status_code != 200:
+        return []
     try:
-        api_url = f"https://api.ashbyhq.com/posting-api/job-board/{company_slug}"
-        resp = requests.get(api_url, headers=HEADERS, timeout=12)
-        if resp.status_code != 200:
-            return []
         data = resp.json()
-    except Exception:
+    except Exception as e:
+        log.warning("ashby json parse failed for %s [%s]", company_slug, e.__class__.__name__)
         return []
 
     jobs = []
@@ -1216,8 +1233,12 @@ def _scrape_parallel(
             for future in done:
                 try:
                     results.extend(future.result())
-                except Exception:
-                    pass
+                except Exception as e:
+                    log.warning(
+                        "scrape task failed for %s [%s]",
+                        futures.get(future, "?"),
+                        e.__class__.__name__,
+                    )
 
     return results
 
@@ -1238,22 +1259,13 @@ def fetch_job_description(url: str) -> str:
         "button",
         "iframe",
     }
-    NOISE_CLASSES = [
-        "nav",
-        "menu",
-        "header",
-        "footer",
-        "sidebar",
-        "cookie",
-        "banner",
-        "advertisement",
-        "social",
-        "modal",
-    ]
+    resp = _get(url, timeout=20)
+    if resp is None:
+        return ""
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=20)
         resp.raise_for_status()
     except Exception:
+        log.warning("description fetch got non-200 for %s", url)
         return ""
 
     soup = BeautifulSoup(resp.text, "html.parser")

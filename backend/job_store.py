@@ -1,31 +1,60 @@
 """
 job_store.py
-SQLite persistence layer for HireView.
+Persistence layer for HireView.
+
+Uses the `libsql` driver for BOTH environments:
+  - local dev  -> a local SQLite file (config.LOCAL_DB_PATH)
+  - production -> Turso cloud SQLite (config.TURSO_DATABASE_URL)
+
+libsql is a SQLite fork with a sqlite3-compatible API, so the SQL below is
+unchanged from plain SQLite. Rows are turned into dicts from cursor.description
+rather than a row_factory, because that works identically for local and remote.
 """
 
-import sqlite3
 import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
-DB_PATH = Path(__file__).parent / "data" / "jobs.db"
+import libsql
+
+import config
 
 
 @contextmanager
 def _conn():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    con = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-    con.row_factory = sqlite3.Row
+    if config.USE_TURSO:
+        # ponytail: fresh HTTP connection per call. Adds a handshake per request;
+        # fine at personal scale. Pool with a module-level client if latency bites.
+        con = libsql.connect(
+            database=config.TURSO_DATABASE_URL,
+            auth_token=config.TURSO_AUTH_TOKEN,
+        )
+    else:
+        config.LOCAL_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        con = libsql.connect(str(config.LOCAL_DB_PATH))
     try:
         yield con
         con.commit()
     except Exception:
-        con.rollback()
+        try:
+            con.rollback()
+        except Exception:
+            pass
         raise
-    finally:
-        con.close()
+
+
+def _dicts(cur) -> list[dict]:
+    cols = [c[0] for c in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def _dict_one(cur) -> Optional[dict]:
+    row = cur.fetchone()
+    if row is None:
+        return None
+    cols = [c[0] for c in cur.description]
+    return dict(zip(cols, row))
 
 
 def _now() -> str:
@@ -53,7 +82,7 @@ def init_db():
             status          TEXT DEFAULT 'new'
         )
         """)
-        existing = {row[1] for row in con.execute("PRAGMA table_info(jobs)")}
+        existing = {row[1] for row in con.execute("PRAGMA table_info(jobs)").fetchall()}
         for col, dflt in [
             ("posted_at", "TEXT DEFAULT ''"),
             ("workplace", "TEXT DEFAULT ''"),
@@ -69,9 +98,9 @@ def upsert_job(job: dict):
     - scraped_at is preserved (reflects first-seen time, never overwritten)
     """
     with _conn() as con:
-        existing = con.execute(
-            "SELECT status, scraped_at FROM jobs WHERE id=?", (job["id"],)
-        ).fetchone()
+        existing = _dict_one(
+            con.execute("SELECT status, scraped_at FROM jobs WHERE id=?", (job["id"],))
+        )
 
         if existing:
             con.execute(
@@ -143,14 +172,14 @@ def get_jobs(
         query += " LIMIT ?"
         params.append(limit)
     with _conn() as con:
-        rows = con.execute(query, params).fetchall()
-    return [_row_to_job(r) for r in rows]
+        rows = _dicts(con.execute(query, params))
+    return [_hydrate(r) for r in rows]
 
 
 def get_job(job_id: str) -> Optional[dict]:
     with _conn() as con:
-        row = con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
-    return _row_to_job(row) if row else None
+        row = _dict_one(con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)))
+    return _hydrate(row) if row else None
 
 
 def update_job_status(job_id: str, status: str):
@@ -162,18 +191,19 @@ def suggest_titles(query: str, limit: int = 10) -> list[str]:
     if not query.strip():
         return []
     with _conn() as con:
-        rows = con.execute(
-            "SELECT DISTINCT title FROM jobs WHERE title LIKE ? ORDER BY title LIMIT ?",
-            (f"%{query}%", limit),
-        ).fetchall()
+        rows = _dicts(
+            con.execute(
+                "SELECT DISTINCT title FROM jobs WHERE title LIKE ? ORDER BY title LIMIT ?",
+                (f"%{query}%", limit),
+            )
+        )
     return [r["title"] for r in rows]
 
 
-def _row_to_job(row: sqlite3.Row) -> dict:
-    d = dict(row)
-    d["required_skills"] = json.loads(d.get("required_skills") or "[]")
-    d["keywords"] = json.loads(d.get("keywords") or "[]")
-    return d
+def _hydrate(row: dict) -> dict:
+    row["required_skills"] = json.loads(row.get("required_skills") or "[]")
+    row["keywords"] = json.loads(row.get("keywords") or "[]")
+    return row
 
 
 init_db()

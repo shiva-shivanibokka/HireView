@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react"
 import type { Job } from "@/lib/types"
-import type { ExperienceLevel, PostedWithin, JobTypeFilter } from "./AutoApplyApp"
+import type { ExperienceLevel, PostedWithin, JobTypeFilter } from "./HireView"
 import { searchJobs, fetchSuggestions, fetchCompanySuggestions } from "@/lib/api"
 import type { CompanySuggestion } from "@/lib/api"
 import {

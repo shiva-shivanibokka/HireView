@@ -9,5 +9,8 @@ python-multipart>=0.0.9
 requests>=2.32.0
 beautifulsoup4>=4.13.0
 
+# Data — libsql speaks SQLite locally and to Turso in the cloud
+libsql>=0.1.0
+
 # Env
 python-dotenv>=1.0.0
