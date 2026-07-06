@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, type ReactNode } from "react"
 import type { Job } from "@/lib/types"
 import { listJobs } from "@/lib/api"
+import { matchesSponsorship, type SponsorshipFilter } from "@/lib/sponsorship"
 import SearchBar from "./SearchBar"
 import JobGrid from "./JobGrid"
 import JobModal from "./JobModal"
@@ -110,6 +111,7 @@ export default function HireView() {
   const [exp, setExp]           = useState<ExperienceLevel>("any")
   const [within, setWithin]     = useState<PostedWithin>("any")
   const [jobType, setJobType]   = useState<JobTypeFilter>("any")
+  const [sponsor, setSponsor]   = useState<SponsorshipFilter>("any")
   const [searched, setSearched] = useState(false)
   const [view, setView]         = useState<"search" | "pipeline">("search")
   const [pipeline, setPipeline] = useState<Job[]>([])
@@ -154,6 +156,7 @@ export default function HireView() {
     .filter(j => matchesExperience(j, exp))
     .filter(j => matchesJobType(j, jobType))
     .filter(j => matchesPostedWithin(j, within))
+    .filter(j => matchesSponsorship(j, sponsor))
     .sort((a, b) => {
       if (sort === "newest") {
         const da = a.posted_at || a.scraped_at
@@ -237,6 +240,8 @@ export default function HireView() {
             onJobTypeChange={setJobType}
             within={within}
             onWithinChange={setWithin}
+            sponsor={sponsor}
+            onSponsorChange={setSponsor}
           />
         </div>
       )}

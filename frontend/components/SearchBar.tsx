@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react"
 import type { Job } from "@/lib/types"
 import type { ExperienceLevel, PostedWithin, JobTypeFilter } from "./HireView"
+import type { SponsorshipFilter } from "@/lib/sponsorship"
 import { searchJobs, fetchSuggestions, fetchCompanySuggestions } from "@/lib/api"
 import type { CompanySuggestion } from "@/lib/api"
 import {
@@ -20,7 +21,15 @@ interface Props {
   onJobTypeChange:  (j: JobTypeFilter) => void
   within:           PostedWithin
   onWithinChange:   (w: PostedWithin) => void
+  sponsor:          SponsorshipFilter
+  onSponsorChange:  (s: SponsorshipFilter) => void
 }
+
+const SPONSOR_OPTIONS: { label: string; value: SponsorshipFilter; sub?: string }[] = [
+  { label: "Any",                value: "any"                                              },
+  { label: "Sponsor-friendly",   value: "friendly", sub: "Hide roles that exclude sponsorship" },
+  { label: "Explicit sponsors",  value: "only",     sub: "Only roles that mention sponsorship"  },
+]
 
 const LOCATIONS = [
   { label: "USA",    value: "United States" },
@@ -71,6 +80,7 @@ const SOURCE_COLORS: Record<string, { bg: string; color: string }> = {
 export default function SearchBar({
   onJobsFound, sort, onSortChange, exp, onExpChange,
   jobType, onJobTypeChange, within, onWithinChange,
+  sponsor, onSponsorChange,
 }: Props) {
   const [selectedTitles, setSelectedTitles]           = useState<string[]>([])
   const [inputValue, setInputValue]                   = useState("")
@@ -563,6 +573,13 @@ export default function SearchBar({
               ))}
             </FilterGroup>
 
+            <FilterGroup label="Visa sponsorship">
+              {SPONSOR_OPTIONS.map(opt => (
+                <DropdownOption key={opt.value} label={opt.label} sub={opt.sub}
+                  active={sponsor === opt.value} onClick={() => onSponsorChange(opt.value)} />
+              ))}
+            </FilterGroup>
+
             <FilterGroup label="Sort by">
               {SORT_OPTIONS.map(opt => (
                 <DropdownOption key={opt.value} label={opt.label}
@@ -612,6 +629,7 @@ export default function SearchBar({
               setLocation("United States")
               onExpChange("any"); onJobTypeChange("any")
               onWithinChange("any"); onSortChange("newest")
+              onSponsorChange("any")
               setUseGH(true); setUseLV(true); setUseAB(true)
               setAdzunaId(""); setAdzunaKey("")
             }} style={{
