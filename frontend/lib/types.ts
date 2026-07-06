@@ -16,4 +16,5 @@ export interface Job {
   status:          "new" | "saved" | "applied" | "interviewing" | "offer" | "rejected" | "dismissed"
   status_updated_at?: string
   is_new?:         boolean   // first seen in the most recent search ("new since last look")
+  closed_at?:      string    // set when the posting 404'd on recheck — no longer open
 }

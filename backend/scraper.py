@@ -1243,6 +1243,23 @@ def _scrape_parallel(
     return results
 
 
+def is_job_live(url: str):
+    """
+    Check whether a job posting is still open.
+    Returns False if the posting is gone (404/410), True if it still resolves,
+    and None if the check itself failed (network error) — callers should NOT
+    close a job on None, only on an explicit False.
+    """
+    if not url:
+        return None
+    resp = _get(url, timeout=15)
+    if resp is None:
+        return None
+    if resp.status_code in (404, 410):
+        return False
+    return True
+
+
 def fetch_job_description(url: str) -> str:
     """Fetch and clean the full job description text from a job posting URL."""
     NOISE_TAGS = {

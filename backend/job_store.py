@@ -88,6 +88,7 @@ def init_db():
             ("posted_at", "TEXT DEFAULT ''"),
             ("workplace", "TEXT DEFAULT ''"),
             ("status_updated_at", "TEXT DEFAULT ''"),
+            ("closed_at", "TEXT DEFAULT ''"),
         ]:
             if col not in existing:
                 con.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dflt}")
@@ -218,6 +219,15 @@ def update_job_status(job_id: str, status: str):
         con.execute(
             "UPDATE jobs SET status=?, status_updated_at=? WHERE id=?",
             (status, _now(), job_id),
+        )
+
+
+def mark_closed(job_id: str):
+    """Flag a job as no longer open (its posting 404'd on recheck)."""
+    with _conn() as con:
+        con.execute(
+            "UPDATE jobs SET closed_at=? WHERE id=? AND COALESCE(closed_at,'')=''",
+            (_now(), job_id),
         )
 
 

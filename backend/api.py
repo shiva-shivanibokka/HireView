@@ -317,6 +317,19 @@ async def search(
 
     raw_jobs.sort(key=_sort_key, reverse=True)
 
+    # Remember this search so the daily digest can re-run it (Adzuna keys excluded).
+    set_setting(
+        "last_search",
+        _json.dumps({
+            "keywords": keywords,
+            "location": location,
+            "use_greenhouse": use_greenhouse.lower() == "true",
+            "use_lever": use_lever.lower() == "true",
+            "use_ashby": use_ashby.lower() == "true",
+            "companies": target_companies,
+        }),
+    )
+
     return {"jobs": raw_jobs, "total": len(raw_jobs), "new_count": new_count}
 
 
@@ -381,6 +394,21 @@ async def save_resume(text: str = Form("")):
 async def read_resume():
     text = get_setting("resume") or ""
     return {"text": text, "has_resume": bool(text), "length": len(text)}
+
+
+@app.post("/api/refresh")
+async def refresh(token: str = ""):
+    """
+    Daily maintenance trigger for Cloud Scheduler: auto-close tracked jobs whose
+    posting is gone, and email a digest of new matches. Protected by REFRESH_TOKEN.
+    """
+    if not config.REFRESH_TOKEN or token != config.REFRESH_TOKEN:
+        raise HTTPException(403, "invalid or missing refresh token")
+    from refresh import run_refresh
+
+    summary = run_refresh()
+    log.info("refresh done: %s", summary)
+    return summary
 
 
 @app.get("/api/health")

@@ -42,6 +42,18 @@ FRONTEND_ORIGINS = [
 # --- Logging ---
 LOG_LEVEL = _env("LOG_LEVEL", "INFO").upper()
 
+# --- Scheduled refresh + daily digest ---
+# Shared secret Cloud Scheduler sends as ?token= to trigger POST /api/refresh.
+REFRESH_TOKEN = _env("REFRESH_TOKEN")
+# Gmail SMTP (app password) for the digest email. All optional — digest is
+# skipped if SMTP_USER/SMTP_PASS/DIGEST_TO are not all set.
+SMTP_HOST = _env("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(_env("SMTP_PORT", "465"))
+SMTP_USER = _env("SMTP_USER")
+SMTP_PASS = _env("SMTP_PASS")
+DIGEST_TO = _env("DIGEST_TO")
+DIGEST_ENABLED = bool(SMTP_USER and SMTP_PASS and DIGEST_TO)
+
 
 def validate() -> None:
     """Raise on inconsistent config. Called once at API startup."""

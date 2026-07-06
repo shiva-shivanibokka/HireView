@@ -119,6 +119,15 @@ function JobCard({ job, accent, onSelect, onDismiss }: {
               New
             </span>
           )}
+          {job.closed_at && (
+            <span style={{
+              marginLeft: 6, fontSize: 11, fontWeight: 700,
+              padding: "2px 8px", borderRadius: 6,
+              background: "#fee2e2", color: "#b91c1c",
+            }}>
+              Closed
+            </span>
+          )}
         </div>
 
         <div style={{
