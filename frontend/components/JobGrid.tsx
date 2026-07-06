@@ -2,6 +2,7 @@
 
 import React from "react"
 import type { Job } from "@/lib/types"
+import { STATUS_META } from "@/lib/status"
 import { MapPinIcon, BuildingIcon, ExternalLinkIcon, XIcon } from "lucide-react"
 
 interface Props {
@@ -100,13 +101,13 @@ function JobCard({ job, accent, onSelect, onDismiss }: {
           }}>
             {src.label}
           </span>
-          {job.status === "saved" && (
+          {job.status !== "new" && job.status !== "dismissed" && (
             <span style={{
               marginLeft: 6, fontSize: 11, fontWeight: 700,
               padding: "2px 8px", borderRadius: 6,
-              background: "#eef1fb", color: "var(--accent)",
+              background: STATUS_META[job.status].bg, color: STATUS_META[job.status].color,
             }}>
-              Saved
+              {STATUS_META[job.status].label}
             </span>
           )}
         </div>

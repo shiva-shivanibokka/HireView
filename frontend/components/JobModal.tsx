@@ -3,9 +3,10 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import type { Job } from "@/lib/types"
 import { fetchJobDescription, updateJobStatus } from "@/lib/api"
+import { PIPELINE_STAGES, STATUS_META } from "@/lib/status"
 import {
   XIcon, ExternalLinkIcon, MapPinIcon, BuildingIcon,
-  BookmarkIcon, LoaderIcon, RefreshCwIcon, MailIcon, LinkedinIcon, CopyIcon, CheckIcon,
+  LoaderIcon, RefreshCwIcon, MailIcon, LinkedinIcon, CopyIcon, CheckIcon,
 } from "lucide-react"
 
 const BADGE_COLORS: Record<string, { bg: string; color: string }> = {
@@ -80,7 +81,7 @@ type Tab = "description" | "contacts"
 export default function JobModal({ job, onClose, onStatusChange }: Props) {
   const [desc, setDesc]       = useState(job.description || "")
   const [loading, setLoading] = useState(false)
-  const [saved, setSaved]     = useState(job.status === "saved")
+  const [status, setStatus]   = useState<Job["status"]>(job.status)
   const [tab, setTab]         = useState<Tab>("description")
   const [copied, setCopied]   = useState(false)
   const hasFetched            = useRef(false)
@@ -111,24 +112,15 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
     return () => window.removeEventListener("keydown", handler)
   }, [job.id, onClose])
 
-  async function handleSave() {
-    const next = saved ? "new" : "saved"
+  async function handleStatusSelect(next: Job["status"]) {
+    const prev = status
+    setStatus(next)  // optimistic
     try {
       await updateJobStatus(job.id, next)
-      setSaved(!saved)
       onStatusChange(next)
+      if (next === "dismissed") onClose()
     } catch {
-      // network error — state unchanged, user can retry
-    }
-  }
-
-  async function handleDismiss() {
-    try {
-      await updateJobStatus(job.id, "dismissed")
-      onStatusChange("dismissed")
-      onClose()
-    } catch {
-      // network error — modal stays open
+      setStatus(prev)  // revert on network error
     }
   }
 
@@ -244,20 +236,26 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
               <ExternalLinkIcon size={14} /> Apply Now
             </a>
 
-            <button onClick={handleSave} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              padding: "9px 16px", borderRadius: 10,
-              border: `1.5px solid ${saved ? "var(--accent)" : "var(--border)"}`,
-              background: saved ? "#eef1fb" : "var(--surface)",
-              color: saved ? "var(--accent)" : "var(--muted)",
-              fontWeight: 600, fontSize: 13, cursor: "pointer",
-              transition: "all 0.15s",
-            }}>
-              <BookmarkIcon size={14} fill={saved ? "currentColor" : "none"} />
-              {saved ? "Saved" : "Save"}
-            </button>
+            <select
+              value={status === "dismissed" ? "new" : status}
+              onChange={e => handleStatusSelect(e.target.value as Job["status"])}
+              onClick={e => e.stopPropagation()}
+              title="Track this job in your pipeline"
+              style={{
+                padding: "9px 14px", borderRadius: 10,
+                border: `1.5px solid ${status !== "new" && status !== "dismissed" ? "var(--accent)" : "var(--border)"}`,
+                background: status !== "new" && status !== "dismissed" ? STATUS_META[status].bg : "var(--surface)",
+                color: status !== "new" && status !== "dismissed" ? STATUS_META[status].color : "var(--muted)",
+                fontWeight: 600, fontSize: 13, cursor: "pointer",
+              }}
+            >
+              <option value="new">＋ Track</option>
+              {PIPELINE_STAGES.map(s => (
+                <option key={s} value={s}>{STATUS_META[s].label}</option>
+              ))}
+            </select>
 
-            <button onClick={handleDismiss} style={{
+            <button onClick={() => handleStatusSelect("dismissed")} style={{
               display: "flex", alignItems: "center", gap: 6,
               padding: "9px 16px", borderRadius: 10,
               border: "1.5px solid var(--border)",

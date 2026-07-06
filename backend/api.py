@@ -33,6 +33,17 @@ logging.basicConfig(
 )
 log = logging.getLogger("hireview")
 
+# Application pipeline funnel. "new" = untracked; "dismissed" = hidden.
+VALID_STATUSES = {
+    "new",
+    "saved",
+    "applied",
+    "interviewing",
+    "offer",
+    "rejected",
+    "dismissed",
+}
+
 CURATED_TITLES = [
     "Machine Learning Engineer",
     "ML Engineer",
@@ -328,9 +339,8 @@ async def patch_status(job_id: str, status: str = Form(...)):
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    valid = {"new", "saved", "dismissed"}
-    if status not in valid:
-        raise HTTPException(400, f"status must be one of {valid}")
+    if status not in VALID_STATUSES:
+        raise HTTPException(400, f"status must be one of {sorted(VALID_STATUSES)}")
     update_job_status(job_id, status)
     return {"job_id": job_id, "status": status}
 

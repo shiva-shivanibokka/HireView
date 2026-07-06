@@ -79,13 +79,15 @@ def init_db():
             match_score     REAL DEFAULT 0,
             scraped_at      TEXT,
             posted_at       TEXT DEFAULT '',
-            status          TEXT DEFAULT 'new'
+            status          TEXT DEFAULT 'new',
+            status_updated_at TEXT DEFAULT ''
         )
         """)
         existing = {row[1] for row in con.execute("PRAGMA table_info(jobs)").fetchall()}
         for col, dflt in [
             ("posted_at", "TEXT DEFAULT ''"),
             ("workplace", "TEXT DEFAULT ''"),
+            ("status_updated_at", "TEXT DEFAULT ''"),
         ]:
             if col not in existing:
                 con.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dflt}")
@@ -184,7 +186,10 @@ def get_job(job_id: str) -> Optional[dict]:
 
 def update_job_status(job_id: str, status: str):
     with _conn() as con:
-        con.execute("UPDATE jobs SET status=? WHERE id=?", (status, job_id))
+        con.execute(
+            "UPDATE jobs SET status=?, status_updated_at=? WHERE id=?",
+            (status, _now(), job_id),
+        )
 
 
 def suggest_titles(query: str, limit: int = 10) -> list[str]:

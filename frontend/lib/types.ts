@@ -13,5 +13,6 @@ export interface Job {
   match_score:     number
   scraped_at:      string
   posted_at:       string
-  status:          "new" | "saved" | "dismissed"
+  status:          "new" | "saved" | "applied" | "interviewing" | "offer" | "rejected" | "dismissed"
+  status_updated_at?: string
 }
