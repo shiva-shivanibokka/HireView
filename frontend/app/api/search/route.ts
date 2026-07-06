@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-
-const BACKEND = "http://localhost:8000"
+import { BACKEND } from "@/lib/backend"
 
 // No timeout on Next.js route handlers — this is the fix for long-running searches
 export const maxDuration = 120  // seconds (Vercel/Next limit, local has no limit)

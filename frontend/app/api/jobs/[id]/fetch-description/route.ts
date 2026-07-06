@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-
-const BACKEND = "http://localhost:8000"
+import { BACKEND } from "@/lib/backend"
 
 export async function POST(
   _req: NextRequest,

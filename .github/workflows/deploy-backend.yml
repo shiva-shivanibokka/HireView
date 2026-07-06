@@ -1,0 +1,28 @@
+# Manual deploy of the FastAPI backend to Google Cloud Run.
+# Run from the Actions tab ("Run workflow"). Requires these repo secrets:
+#   GCP_PROJECT_ID        - your GCP project id
+#   GCP_SA_KEY            - a service-account JSON key with Cloud Run + Cloud Build access
+#   (backend env like TURSO_* is set on the Cloud Run service itself, not here)
+name: Deploy backend (Cloud Run)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: hireview-api
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          region: us-central1
+          source: backend
+          flags: --allow-unauthenticated --port=8080
