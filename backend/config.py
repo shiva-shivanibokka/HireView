@@ -27,7 +27,8 @@ def _env(name: str, default: str = "") -> str:
 TURSO_DATABASE_URL = _env("TURSO_DATABASE_URL")
 TURSO_AUTH_TOKEN = _env("TURSO_AUTH_TOKEN")
 USE_TURSO = bool(TURSO_DATABASE_URL)
-LOCAL_DB_PATH = Path(__file__).parent / "data" / "jobs.db"
+# HIREVIEW_DB_PATH overrides the local SQLite location (used by tests for a temp DB).
+LOCAL_DB_PATH = Path(_env("HIREVIEW_DB_PATH") or (Path(__file__).parent / "data" / "jobs.db"))
 
 # --- Web ---
 # Comma-separated list of origins allowed to call the API (the deployed frontend).
