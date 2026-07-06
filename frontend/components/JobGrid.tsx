@@ -110,6 +110,15 @@ function JobCard({ job, accent, onSelect, onDismiss }: {
               {STATUS_META[job.status].label}
             </span>
           )}
+          {job.is_new && job.status === "new" && (
+            <span style={{
+              marginLeft: 6, fontSize: 11, fontWeight: 700,
+              padding: "2px 8px", borderRadius: 6,
+              background: "#dcfce7", color: "#15803d",
+            }}>
+              New
+            </span>
+          )}
         </div>
 
         <div style={{

@@ -278,9 +278,13 @@ async def search(
             "message": "No jobs found. Try different keywords or enable more sources.",
         }
 
+    new_count = 0
     for job in raw_jobs:
         job["match_score"] = _keyword_score(job, kw_list)
-        upsert_job(job)
+        is_new = upsert_job(job)
+        job["is_new"] = is_new
+        if is_new:
+            new_count += 1
 
     def _sort_key(j: dict) -> str:
         s = j.get("posted_at") or j.get("scraped_at", "")
@@ -293,7 +297,7 @@ async def search(
 
     raw_jobs.sort(key=_sort_key, reverse=True)
 
-    return {"jobs": raw_jobs, "total": len(raw_jobs)}
+    return {"jobs": raw_jobs, "total": len(raw_jobs), "new_count": new_count}
 
 
 @app.get("/api/jobs")

@@ -166,6 +166,8 @@ export default function HireView() {
       return b.match_score - a.match_score
     })
 
+  const newCount = visible.filter(j => j.is_new).length
+
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)" }}>
       <header style={{
@@ -211,6 +213,9 @@ export default function HireView() {
               borderRadius: 20, border: "1px solid var(--border)",
             }}>
               {visible.length} jobs
+              {newCount > 0 && (
+                <span style={{ color: "#15803d", fontWeight: 700 }}> · {newCount} new</span>
+              )}
             </span>
           )}
         </div>

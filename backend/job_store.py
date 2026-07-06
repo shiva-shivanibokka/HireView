@@ -93,9 +93,10 @@ def init_db():
                 con.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dflt}")
 
 
-def upsert_job(job: dict):
+def upsert_job(job: dict) -> bool:
     """
-    Insert or update a job row.
+    Insert or update a job row. Returns True if this was a NEW row (first time
+    seen), False if it already existed — used to flag "new since last look".
     - status is preserved on re-scrape
     - scraped_at is preserved (reflects first-seen time, never overwritten)
     """
@@ -155,6 +156,8 @@ def upsert_job(job: dict):
                     job.get("posted_at", ""),
                 ),
             )
+
+        return not existing
 
 
 def get_jobs(

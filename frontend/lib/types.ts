@@ -15,4 +15,5 @@ export interface Job {
   posted_at:       string
   status:          "new" | "saved" | "applied" | "interviewing" | "offer" | "rejected" | "dismissed"
   status_updated_at?: string
+  is_new?:         boolean   // first seen in the most recent search ("new since last look")
 }
