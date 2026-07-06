@@ -25,7 +25,16 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import config
 from scraper import search_jobs, fetch_job_description, get_company_name_map
-from job_store import upsert_job, get_jobs, get_job, update_job_status, suggest_titles
+from job_store import (
+    upsert_job,
+    get_jobs,
+    get_job,
+    update_job_status,
+    suggest_titles,
+    get_setting,
+    set_setting,
+)
+from ranker import score_by_resume
 
 logging.basicConfig(
     level=config.LOG_LEVEL,
@@ -278,9 +287,20 @@ async def search(
             "message": "No jobs found. Try different keywords or enable more sources.",
         }
 
-    new_count = 0
     for job in raw_jobs:
         job["match_score"] = _keyword_score(job, kw_list)
+
+    # Resume-aware ranking: blend keyword relevance with BM25 fit to the saved resume.
+    resume_text = get_setting("resume") or ""
+    if resume_text.strip():
+        score_by_resume(raw_jobs, resume_text)
+        for job in raw_jobs:
+            job["match_score"] = round(
+                0.5 * job["match_score"] + 0.5 * job.get("resume_score", 0.0), 4
+            )
+
+    new_count = 0
+    for job in raw_jobs:
         is_new = upsert_job(job)
         job["is_new"] = is_new
         if is_new:
@@ -347,6 +367,20 @@ async def patch_status(job_id: str, status: str = Form(...)):
         raise HTTPException(400, f"status must be one of {sorted(VALID_STATUSES)}")
     update_job_status(job_id, status)
     return {"job_id": job_id, "status": status}
+
+
+@app.post("/api/resume")
+async def save_resume(text: str = Form("")):
+    """Store the user's resume text; used to rank jobs by fit (BM25)."""
+    text = text.strip()
+    set_setting("resume", text)
+    return {"has_resume": bool(text), "length": len(text)}
+
+
+@app.get("/api/resume")
+async def read_resume():
+    text = get_setting("resume") or ""
+    return {"text": text, "has_resume": bool(text), "length": len(text)}
 
 
 @app.get("/api/health")

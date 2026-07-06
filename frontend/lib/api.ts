@@ -86,3 +86,13 @@ export async function updateJobStatus(jobId: string, status: string): Promise<vo
   fd.append("status", status)
   await request(`/api/jobs/${jobId}/status`, { method: "PATCH", body: fd })
 }
+
+export async function getResume(): Promise<{ text: string; has_resume: boolean; length: number }> {
+  return request("/api/resume")
+}
+
+export async function saveResume(text: string): Promise<{ has_resume: boolean; length: number }> {
+  const fd = new FormData()
+  fd.append("text", text)
+  return request("/api/resume", { method: "POST", body: fd })
+}

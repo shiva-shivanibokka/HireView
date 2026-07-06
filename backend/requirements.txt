@@ -12,5 +12,8 @@ beautifulsoup4>=4.13.0
 # Data — libsql speaks SQLite locally and to Turso in the cloud
 libsql>=0.1.0
 
+# Resume-aware ranking — lexical BM25, no ML model weight
+rank-bm25>=0.2.2
+
 # Env
 python-dotenv>=1.0.0

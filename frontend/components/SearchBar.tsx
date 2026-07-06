@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react"
 import type { Job } from "@/lib/types"
 import type { ExperienceLevel, PostedWithin, JobTypeFilter } from "./HireView"
 import type { SponsorshipFilter } from "@/lib/sponsorship"
-import { searchJobs, fetchSuggestions, fetchCompanySuggestions } from "@/lib/api"
+import { searchJobs, fetchSuggestions, fetchCompanySuggestions, getResume, saveResume } from "@/lib/api"
 import type { CompanySuggestion } from "@/lib/api"
 import {
   SearchIcon, LoaderIcon, SlidersHorizontalIcon,
@@ -103,6 +103,24 @@ export default function SearchBar({
   const [useGH, setUseGH]                   = useState(true)
   const [useLV, setUseLV]                   = useState(true)
   const [useAB, setUseAB]                   = useState(true)
+  const [resumeText, setResumeText]         = useState("")
+  const [resumeSaved, setResumeSaved]       = useState(false)
+
+  // Load any previously-saved resume so the panel reflects current state.
+  useEffect(() => {
+    getResume()
+      .then(r => { if (r.text) { setResumeText(r.text); setResumeSaved(true) } })
+      .catch(() => {})
+  }, [])
+
+  async function handleSaveResume() {
+    try {
+      await saveResume(resumeText)
+      setResumeSaved(true)
+    } catch {
+      // leave unsaved; user can retry
+    }
+  }
 
   const inputRef           = useRef<HTMLInputElement>(null)
   const dropdownRef        = useRef<HTMLDivElement>(null)
@@ -616,6 +634,41 @@ export default function SearchBar({
                 placeholder="App Key" style={inputStyle} />
               <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 4 }}>
                 Free key at developer.adzuna.com
+              </div>
+            </FilterGroup>
+
+            <FilterGroup label="Resume (rank by fit)">
+              <textarea
+                value={resumeText}
+                onChange={e => { setResumeText(e.target.value); setResumeSaved(false) }}
+                placeholder="Paste your resume text to rank jobs by how well they match. Then sort by 'Most relevant'."
+                rows={5}
+                style={{ ...inputStyle, resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }}
+              />
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
+                <button
+                  onClick={handleSaveResume}
+                  disabled={resumeSaved}
+                  style={{
+                    padding: "6px 14px", borderRadius: 8, border: "none", cursor: resumeSaved ? "default" : "pointer",
+                    background: resumeSaved ? "#dcfce7" : "var(--accent)",
+                    color: resumeSaved ? "#15803d" : "#fff",
+                    fontSize: 12, fontWeight: 700,
+                  }}
+                >
+                  {resumeSaved ? "Saved ✓" : "Save resume"}
+                </button>
+                {resumeText && (
+                  <button
+                    onClick={() => { setResumeText(""); saveResume("").catch(() => {}); setResumeSaved(false) }}
+                    style={{
+                      padding: "6px 12px", borderRadius: 8, border: "1px solid var(--border)",
+                      background: "none", color: "var(--muted)", fontSize: 12, fontWeight: 600, cursor: "pointer",
+                    }}
+                  >
+                    Clear
+                  </button>
+                )}
               </div>
             </FilterGroup>
 

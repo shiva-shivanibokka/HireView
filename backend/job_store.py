@@ -91,6 +91,24 @@ def init_db():
         ]:
             if col not in existing:
                 con.execute(f"ALTER TABLE jobs ADD COLUMN {col} {dflt}")
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)"
+        )
+
+
+def get_setting(key: str) -> Optional[str]:
+    with _conn() as con:
+        row = _dict_one(con.execute("SELECT value FROM settings WHERE key=?", (key,)))
+    return row["value"] if row else None
+
+
+def set_setting(key: str, value: str):
+    with _conn() as con:
+        con.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
 
 
 def upsert_job(job: dict) -> bool:

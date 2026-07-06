@@ -192,6 +192,14 @@ export default function JobModal({ job, onClose, onStatusChange }: Props) {
                     Posted {timeAgo(job.posted_at)}
                   </span>
                 )}
+                {job.match_score > 0 && (
+                  <span style={{
+                    fontSize: 12, fontWeight: 700, padding: "2px 9px", borderRadius: 5,
+                    background: "#eef1fb", color: "var(--accent)",
+                  }}>
+                    Match {Math.round(job.match_score * 100)}%
+                  </span>
+                )}
               </div>
             </div>
 
