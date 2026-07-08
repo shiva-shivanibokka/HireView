@@ -33,3 +33,6 @@ nul
 .vscode/
 .idea/
 *.swp
+
+# Local-only notes (kept off GitHub)
+DEPLOY.md
